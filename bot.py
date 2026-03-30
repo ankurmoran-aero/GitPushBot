@@ -16,6 +16,13 @@ from telegram.ext import (
     ConversationHandler,
 )
 import config
+from dotenv import load_dotenv
+
+# Load environment variables from .env if it exists
+load_dotenv()
+
+# Priority: 1. Environment Variable, 2. config.py
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or getattr(config, 'TELEGRAM_BOT_TOKEN', "YOUR_BOT_TOKEN_HERE")
 
 # Enable logging
 logging.basicConfig(
@@ -408,7 +415,7 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_html("🏓 <b>Pong!</b> Bot is active.")
 
 def main():
-    application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("ping", ping))
     
     conv_handler = ConversationHandler(
