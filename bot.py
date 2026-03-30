@@ -55,16 +55,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         welcome_text = (
             f"{BANNER}"
             f"Hello, <b>{first_name}</b>! 👋\n\n"
-            "Welcome to the most advanced GitHub Management partner on Telegram. This bot is designed to turn your mobile device into a powerful development workstation, allowing you to bridge the gap between your local files and remote repositories with zero friction.\n\n"
-            "Whether you are an open-source contributor or a private developer, our system provides a high-performance interface to interact with the GitHub REST API securely and efficiently. You can manage multiple repositories, navigate complex directory structures, and perform critical file operations directly from this chat.\n\n"
+            "Welcome to <b>GitPushBot</b>, your high-performance GitHub partner on Telegram. This bot turns your mobile device into a powerful development workstation, bridging the gap between local files and remote repositories with zero friction.\n\n"
             "🛡 <b>Identity & Security</b>\n"
-            "We prioritize your safety. The bot uses your <b>GitHub Personal Access Token (PAT)</b> to authenticate sessions. This token is stored only within your encrypted Telegram session and is never logged or shared. For maximum security, we recommend using <b>Fine-grained tokens</b> restricted to specific repositories with 'Contents' Read/Write permissions.\n\n"
+            "We prioritize your safety. Your <b>GitHub PAT</b> is stored only within your encrypted session and is never shared. We recommend <b>Fine-grained tokens</b> for maximum security.\n\n"
             "🚀 <b>Key Features</b>\n"
-            "• <b>Instant Uploads:</b> Send any document or code file, and it will be pushed to your chosen branch immediately.\n"
-            "• <b>Smart Deletion:</b> Browse your repo structure and remove obsolete files with a single click.\n"
-            "• <b>Archive Generation:</b> Download entire repositories as compressed ZIP files for offline access.\n"
-            "• <b>Seamless Navigation:</b> Explore deep folders using interactive inline keyboards that update the same message to keep your chat clean.\n\n"
-            "🔑 <b>To begin, please provide your GitHub Personal Access Token (PAT)</b>."
+            "• <b>Instant Uploads:</b> Push files to your repo immediately.\n"
+            "• <b>Smart Deletion:</b> Remove obsolete files with a single click.\n"
+            "• <b>Archive Gen:</b> Download repos as ZIP files for offline access.\n"
+            "• <b>Seamless UI:</b> Explore folders using interactive menus.\n\n"
+            "🔑 <b>To begin, please provide your GitHub PAT.</b>"
         )
         keyboard = [
             [InlineKeyboardButton("👨‍💻 Dev - @Ankurslys", url="https://t.me/Ankurslys")],
