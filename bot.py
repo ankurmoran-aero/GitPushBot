@@ -112,7 +112,12 @@ async def how_to_use_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         "6) <b>Clean Session:</b> Use /logout anytime to wipe your token from the bot's temporary memory."
     )
     keyboard = [[InlineKeyboardButton("🔙 Back to Start", callback_data="back_to_start")]]
-    await query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+    
+    try:
+        await query.edit_message_caption(caption=help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+    except Exception:
+        # Fallback if the message doesn't have a caption (unlikely here but safe)
+        await query.edit_message_text(text=help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
 
 async def back_to_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
