@@ -73,13 +73,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             "🔑 <b>To begin, please provide your GitHub PAT.</b>"
         )
         keyboard = [
-            [InlineKeyboardButton("👨‍💻 Dev - @Ankurslys", url="https://t.me/Ankurslys")],
-            [InlineKeyboardButton("🛡 Support - @BrahMosAI", url="https://t.me/BrahMosAI")],
+            [InlineKeyboardButton("👨‍💻 Dev", url="https://t.me/Ankurslys")],
+            [InlineKeyboardButton("🛡 Support", url="https://t.me/BrahMosAI")],
             [InlineKeyboardButton("📖 How To Use", callback_data="how_to_use")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        banner_path = os.path.join(os.path.dirname(__file__), "banner.jpg")
+        banner_path = os.path.join(os.path.dirname(__file__), "start.jpg")
         
         if os.path.exists(banner_path):
             with open(banner_path, 'rb') as banner:
