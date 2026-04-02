@@ -5,6 +5,12 @@
 
 TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 
-# AI Analysis Configuration (OpenRouter)
-# Get your key at https://openrouter.ai/
-OPENROUTER_API_KEY = "YOUR_OPENROUTER_API_KEY_HERE"
+# AI Analysis Configuration 
+# Use your Own API & ITS key.
+API_BASE = "PLACE_YOUR_API_BASE_HERE"
+API_MODEL = "MODEL_NAME"
+API_KEY = "PASTE_YOUR_API_KEY_HERE"
+
+
+
+
