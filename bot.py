@@ -17,12 +17,14 @@ from telegram.ext import (
 )
 import config
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 # Load environment variables from .env if it exists
 load_dotenv()
 
 # Priority: 1. Environment Variable, 2. config.py
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or getattr(config, 'TELEGRAM_BOT_TOKEN', "YOUR_BOT_TOKEN_HERE")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or getattr(config, 'OPENROUTER_API_KEY', "YOUR_OPENROUTER_API_KEY_HERE")
 
 # Enable logging
 logging.basicConfig(
@@ -31,10 +33,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # States for ConversationHandler
-SETTING_TOKEN, SELECTING_REPO, SELECTING_ACTION, LISTING_CONTENTS, SELECTING_DOWNLOAD_TYPE = range(5)
+(
+    SETTING_TOKEN, 
+    SELECTING_REPO, 
+    SELECTING_ACTION, 
+    LISTING_CONTENTS, 
+    SELECTING_DOWNLOAD_TYPE,
+    CREATING_PR_HEAD,
+    CREATING_PR_BASE,
+    CREATING_PR_TITLE,
+    CREATING_PR_BODY
+) = range(9)
 
 # UI Constant
 BANNER = "<b>🚀 GitPushBot | GitHub Manager</b>\n━━━━━━━━━━━━━━━━━━━━━━\n"
+
+# Initialize OpenRouter LLM client
+llm_client = AsyncOpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+)
 
 def get_github_client(context: ContextTypes.DEFAULT_TYPE):
     """Get GitHub client for the current user."""
@@ -69,7 +87,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             "• <b>Instant Uploads:</b> Push files to your repo immediately.\n"
             "• <b>Smart Deletion:</b> Remove obsolete files with a single click.\n"
             "• <b>Archive Gen:</b> Download repos as ZIP files for offline access.\n"
-            "• <b>Seamless UI:</b> Explore folders using interactive menus.\n\n"
+            "• <b>Seamless UI:</b> Explore folders using interactive menus.\n"
+            "• <b>AI Analysis:</b> Analyze code with AI via OpenRouter.\n"
+            "• <b>Pull Requests:</b> Create PRs directly from Telegram.\n\n"
             "🔑 <b>To begin, please provide your GitHub PAT.</b>"
         )
         keyboard = [
@@ -108,7 +128,7 @@ async def how_to_use_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         "2) <b>Authenticate:</b> Paste your token here. The bot will verify it and fetch your repository list automatically.\n\n"
         "3) <b>Select Repository:</b> Click on any folder icon to enter a repo. All subsequent actions will happen inside this specific repository until you go back.\n\n"
         "4) <b>Push Files:</b> Once inside a repo, click 'Initiate' then simply send a file to this chat. The bot will upload it to the 'main' branch by default.\n\n"
-        "5) <b>Manage Assets:</b> Use the 'Delete' menu to browse and remove files, or use the 'Download' menu to get single files or the entire repo as a ZIP.\n\n"
+        "5) <b>Manage Assets:</b> Use the menus to View, Analyze, Download or Delete files. Create PRs with ease.\n\n"
         "6) <b>Clean Session:</b> Use /logout anytime to wipe your token from the bot's temporary memory."
     )
     keyboard = [[InlineKeyboardButton("🔙 Back to Start", callback_data="back_to_start")]]
@@ -154,7 +174,10 @@ async def list_repos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     if update.callback_query:
         await update.callback_query.answer()
-        loading_msg = await update.callback_query.edit_message_text("🔄 <b>Fetching repositories...</b>", parse_mode=ParseMode.HTML)
+        try:
+            loading_msg = await update.callback_query.edit_message_text("🔄 <b>Fetching repositories...</b>", parse_mode=ParseMode.HTML)
+        except Exception:
+            loading_msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="🔄 <b>Fetching repositories...</b>", parse_mode=ParseMode.HTML)
     else:
         loading_msg = await update.effective_message.reply_html("🔄 <b>Fetching repositories...</b>")
     
@@ -196,7 +219,10 @@ async def show_action_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     keyboard = [
         [InlineKeyboardButton("📤 Initiate (Upload)", callback_data="initiate")],
         [InlineKeyboardButton("📥 Download (Get File)", callback_data="download_menu")],
+        [InlineKeyboardButton("👁 View File", callback_data="list_contents_view")],
+        [InlineKeyboardButton("🧠 Analyze File", callback_data="list_contents_analyze")],
         [InlineKeyboardButton("🗑 Delete File", callback_data="list_contents_delete")],
+        [InlineKeyboardButton("🔁 Create PR", callback_data="create_pr_start")],
         [InlineKeyboardButton("🔙 Back to Repos", callback_data="back_to_repos")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -207,6 +233,54 @@ async def show_action_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         await update.message.reply_html(msg_text, reply_markup=reply_markup)
     return SELECTING_ACTION
+
+# --- PR Flow Functions ---
+async def create_pr_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        f"{BANNER}🔁 <b>Create Pull Request</b>\n\n"
+        "Please type the name of the <b>HEAD branch</b> (the branch containing your changes):",
+        parse_mode=ParseMode.HTML
+    )
+    return CREATING_PR_HEAD
+
+async def create_pr_head(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['pr_head'] = update.message.text.strip()
+    await update.message.reply_html(
+        "Please type the name of the <b>BASE branch</b> (the branch you want to merge into, e.g., main):"
+    )
+    return CREATING_PR_BASE
+
+async def create_pr_base(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['pr_base'] = update.message.text.strip()
+    await update.message.reply_html("Please type the <b>Title</b> for the Pull Request:")
+    return CREATING_PR_TITLE
+
+async def create_pr_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['pr_title'] = update.message.text.strip()
+    await update.message.reply_html("Please type the <b>Body/Description</b> for the Pull Request:")
+    return CREATING_PR_BODY
+
+async def create_pr_submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    body = update.message.text.strip()
+    repo_name = context.user_data['repo_name']
+    head = context.user_data['pr_head']
+    base = context.user_data['pr_base']
+    title = context.user_data['pr_title']
+    
+    status_msg = await update.message.reply_html("⏳ <b>Creating Pull Request...</b>")
+    g = get_github_client(context)
+    try:
+        repo = g.get_user().get_repo(repo_name)
+        pr = repo.create_pull(title=title, body=body, head=head, base=base)
+        await status_msg.edit_text(f"✅ <b>Pull Request Created!</b>\n<a href='{pr.html_url}'>{html.escape(title)}</a>", parse_mode=ParseMode.HTML)
+        return await show_action_menu(update, context)
+    except Exception as e:
+        logger.error(f"Error creating PR: {e}")
+        await status_msg.edit_text(f"❌ <b>PR Creation Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        return SELECTING_ACTION
+# -------------------------
 
 async def download_menu_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -261,6 +335,12 @@ async def list_contents(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     elif query.data == "list_contents_download":
         context.user_data['action_type'] = "download"
         context.user_data['current_path'] = ""
+    elif query.data == "list_contents_view":
+        context.user_data['action_type'] = "view"
+        context.user_data['current_path'] = ""
+    elif query.data == "list_contents_analyze":
+        context.user_data['action_type'] = "analyze"
+        context.user_data['current_path'] = ""
 
     return await render_contents(update, context)
 
@@ -286,20 +366,43 @@ async def render_contents(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parent_path = "/".join(path.split("/")[:-1])
             keyboard.append([InlineKeyboardButton("📁 .. (Parent)", callback_data=f"cd:{parent_path}")])
 
+        if action == "analyze":
+            keyboard.append([InlineKeyboardButton("🧠 Analyze Entire Folder", callback_data=f"analyze_folder:{path}")])
+
+        current_row = []
         for content in contents:
             content_path = html.escape(content.path)
             if content.type == "dir":
-                keyboard.append([InlineKeyboardButton(f"📁 {content.name}", callback_data=f"cd:{content.path}")])
+                btn = InlineKeyboardButton(f"📁 {content.name}", callback_data=f"cd:{content.path}")
             else:
-                prefix = "🗑" if action == "delete" else "📥"
-                callback_prefix = "delete" if action == "delete" else "download_file"
-                keyboard.append([InlineKeyboardButton(f"{prefix} {content.name}", callback_data=f"{callback_prefix}:{content.path}")])
+                if action == "delete":
+                    prefix = "🗑"
+                    callback_prefix = "delete"
+                elif action == "download":
+                    prefix = "📥"
+                    callback_prefix = "download_file"
+                elif action == "view":
+                    prefix = "👁"
+                    callback_prefix = "view_file"
+                else: # analyze
+                    prefix = "🧠"
+                    callback_prefix = "analyze_file"
+
+                btn = InlineKeyboardButton(f"{prefix} {content.name}", callback_data=f"{callback_prefix}:{content.path}")
+            
+            current_row.append(btn)
+            if len(current_row) == 2:
+                keyboard.append(current_row)
+                current_row = []
+                
+        if current_row:
+            keyboard.append(current_row)
         
         keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_to_menu")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         display_path = html.escape(path) if path else "Root"
-        mode_text = "DELETE" if action == "delete" else "DOWNLOAD"
+        mode_text = action.upper()
         await query.edit_message_text(
             f"{BANNER}📂 <b>{mode_text} Path:</b> <code>{html.escape(repo_name)}/{display_path}</code>\n\n"
             "<i>Select a file or folder.</i>", 
@@ -355,6 +458,235 @@ async def download_file_callback(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         logger.error(f"Download file error: {e}")
         await query.edit_message_text(f"❌ <b>Download Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        return SELECTING_ACTION
+
+async def view_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    file_path = query.data.split(":", 1)[1]
+    repo_name = context.user_data['repo_name']
+    g = get_github_client(context)
+    repo = g.get_user().get_repo(repo_name)
+    
+    try:
+        contents = repo.get_contents(file_path)
+        try:
+            decoded_content = contents.decoded_content.decode('utf-8')
+        except UnicodeDecodeError:
+            decoded_content = "Binary or unsupported file format."
+
+        safe_content = html.escape(decoded_content)
+        if len(safe_content) > 3800:
+            safe_content = safe_content[:3800] + "\n...[Content Truncated]..."
+        
+        msg = f"👁 <b>File:</b> <code>{html.escape(file_path)}</code>\n<pre><code>{safe_content}</code></pre>"
+        await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
+        
+        keyboard = [[InlineKeyboardButton("🔙 Back to Repo", callback_data="back_to_menu")]]
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Actions:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return SELECTING_ACTION
+    except Exception as e:
+        logger.error(f"Error viewing file: {e}")
+        await query.edit_message_text(f"❌ <b>View Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        return SELECTING_ACTION
+
+async def analyze_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    file_path = query.data.split(":", 1)[1]
+    repo_name = context.user_data['repo_name']
+    g = get_github_client(context)
+    repo = g.get_user().get_repo(repo_name)
+    
+    await query.edit_message_text(f"🧠 <b>Analyzing</b> <code>{html.escape(file_path)}</code> with LLM...", parse_mode=ParseMode.HTML)
+    
+    try:
+        contents = repo.get_contents(file_path)
+        try:
+            decoded_content = contents.decoded_content.decode('utf-8')
+        except UnicodeDecodeError:
+            decoded_content = "Cannot analyze binary files."
+
+        # Format code with line numbers to help AI
+        lines = decoded_content.split('\n')
+        numbered_code = '\n'.join([f"{i+1} | {line}" for i, line in enumerate(lines)])
+        
+        prompt = (
+            f"Analyze the following code from {file_path}. "
+            "Identify any potential errors, bugs, or improvements. \n"
+            "IMPORTANT RULES:\n"
+            "- Always mention the exact line number where the issue is found.\n"
+            "- Ignore 'hardcoded credentials' warnings for config files (like config.py or .env).\n"
+            "CRITICAL FORMATTING RULES:\n"
+            "1. Format strictly using HTML tags: <b>, <i>, <pre>, <code>.\n"
+            "2. DO NOT use markdown like ** or ### or ```.\n"
+            "3. Escape < and > inside code blocks as &lt; and &gt;.\n"
+            "4. If you detect ANY error (critical OR minor) that needs fixing, end your response with exactly: [ERROR_DETECTED].\n\n"
+            f"CODE WITH LINE NUMBERS:\n{numbered_code[:6000]}" # Limit context
+        )
+        
+        response = await llm_client.chat.completions.create(
+            model="google/gemini-3.1-flash-lite-preview", 
+            messages=[
+                {"role": "system", "content": "You are an expert code reviewer and debugger."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=800
+        )
+        
+        raw_analysis = response.choices[0].message.content
+        if len(raw_analysis) > 3800:
+            raw_analysis = raw_analysis[:3800] + "..."
+            
+        keyboard = [[InlineKeyboardButton("🔙 Back to Repo", callback_data="back_to_menu")]]
+        
+        if "[ERROR_DETECTED]" in raw_analysis:
+            raw_analysis = raw_analysis.replace("[ERROR_DETECTED]", "")
+            # Give users a clear, optional button to trigger an AI fix
+            keyboard.insert(0, [InlineKeyboardButton("🛠 Magic Fix (Auto-Resolve)", callback_data=f"fix_error:{file_path}")])
+            
+        msg = f"🧠 <b>Analysis for</b> <code>{html.escape(file_path)}</code>:\n\n{raw_analysis}"
+        
+        try:
+            await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
+        except Exception as e:
+            logger.error(f"HTML Parse Error: {e}, falling back to plain text.")
+            clean_msg = re.sub(r'<[^>]+>', '', msg)
+            await query.edit_message_text(clean_msg)
+            
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Actions:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return SELECTING_ACTION
+    except Exception as e:
+        logger.error(f"Error analyzing file: {e}")
+        await query.edit_message_text(f"❌ <b>Analysis Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        return SELECTING_ACTION
+
+
+async def fix_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    file_path = query.data.split(":", 1)[1]
+    repo_name = context.user_data['repo_name']
+    g = get_github_client(context)
+    repo = g.get_user().get_repo(repo_name)
+    
+    await query.edit_message_text(f"🛠 <b>Fixing</b> <code>{html.escape(file_path)}</code> with AI...", parse_mode=ParseMode.HTML)
+    
+    try:
+        contents = repo.get_contents(file_path)
+        decoded_content = contents.decoded_content.decode('utf-8')
+        
+        prompt = (
+            f"Fix the errors in the following code from {file_path}. "
+            "Return ONLY the fully corrected raw code. Do not include any explanations, markdown formatting (like ```python), or HTML tags. "
+            "The output must be strictly the raw code that can be saved directly to the file.\n\n"
+            f"{decoded_content}"
+        )
+        
+        response = await llm_client.chat.completions.create(
+            model="google/gemini-3.1-flash-lite-preview",
+            messages=[
+                {"role": "system", "content": "You are an expert code fixer. Provide only raw fixed code."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=4000
+        )
+        
+        fixed_code = response.choices[0].message.content.strip()
+        fixed_code = re.sub(r"^```[a-zA-Z0-9]*\n", "", fixed_code)
+        fixed_code = re.sub(r"```$", "", fixed_code).strip()
+        
+        repo.update_file(contents.path, f"AI Fix {file_path}", bytes(fixed_code, 'utf-8'), contents.sha, branch="main")
+        
+        keyboard = [[InlineKeyboardButton("🔙 Back to Repo", callback_data="back_to_menu")]]
+        await query.edit_message_text(f"✅ <b>Successfully fixed and pushed:</b> <code>{html.escape(file_path)}</code>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
+        return SELECTING_ACTION
+    except Exception as e:
+        logger.error(f"Error fixing file: {e}")
+        await query.edit_message_text(f"❌ <b>Fix Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        return SELECTING_ACTION
+
+
+async def analyze_folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    folder_path = query.data.split(":", 1)[1]
+    repo_name = context.user_data['repo_name']
+    g = get_github_client(context)
+    repo = g.get_user().get_repo(repo_name)
+    
+    display_path = html.escape(folder_path) if folder_path else "Root"
+    await query.edit_message_text(f"🧠 <b>Analyzing folder</b> <code>{display_path}</code> with AI...\n<i>This might take a minute depending on folder size.</i>", parse_mode=ParseMode.HTML)
+    
+    try:
+        def get_all_files(repo, path, limit=15):
+            files = []
+            try:
+                contents = repo.get_contents(path)
+                for content in contents:
+                    if len(files) >= limit: break
+                    if content.type == "dir":
+                        files.extend(get_all_files(repo, content.path, limit - len(files)))
+                    elif content.name.endswith(('.py', '.js', '.ts', '.html', '.css', '.json', '.md', '.toml', '.txt')):
+                        files.append(content)
+            except: pass
+            return files
+            
+        files_to_analyze = get_all_files(repo, folder_path)
+        
+        combined_content = ""
+        for f in files_to_analyze:
+            try:
+                decoded = f.decoded_content.decode('utf-8')
+                combined_content += f"\n\n--- FILE: {f.path} ---\n{decoded[:1000]}"
+            except: pass
+                
+        prompt = (
+            f"Analyze the following files from the folder '{folder_path}'. "
+            "Identify architectural issues, potential errors, or bugs. "
+            "Keep the response concise.\n"
+            "CRITICAL FORMATTING RULES:\n"
+            "1. Format strictly using HTML tags: <b>, <i>, <pre>, <code>.\n"
+            "2. DO NOT use markdown like ** or ### or ```.\n"
+            "3. Escape < and > inside code blocks as &lt; and &gt;.\n\n"
+            f"CODE:\n{combined_content[:15000]}"
+        )
+        
+        response = await llm_client.chat.completions.create(
+            model="google/gemini-3.1-flash-lite-preview",
+            messages=[{"role": "system", "content": "You are an expert software architect."}, {"role": "user", "content": prompt}],
+            max_tokens=800
+        )
+        
+        raw_analysis = response.choices[0].message.content
+        if len(raw_analysis) > 3800: raw_analysis = raw_analysis[:3800] + "..."
+            
+        keyboard = [[InlineKeyboardButton("🔙 Back to Repo", callback_data="back_to_menu")]]
+        msg = f"🧠 <b>Analysis for Folder</b> <code>{display_path}</code>:\n\n{raw_analysis}"
+        
+        try:
+            await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
+        except Exception:
+            clean_msg = re.sub(r'<[^>]+>', '', msg)
+            await query.edit_message_text(clean_msg)
+            
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Actions:", reply_markup=InlineKeyboardMarkup(keyboard))
+        return SELECTING_ACTION
+    except Exception as e:
+        logger.error(f"Error analyzing folder: {e}")
+        await query.edit_message_text(f"❌ <b>Analysis Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
         return SELECTING_ACTION
 
 async def initiate_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -435,7 +767,9 @@ def main():
                 CallbackQueryHandler(initiate_prompt, pattern="^initiate$"),
                 CallbackQueryHandler(download_menu_prompt, pattern="^download_menu$"),
                 CallbackQueryHandler(list_contents, pattern="^list_contents_"),
+                CallbackQueryHandler(create_pr_start, pattern="^create_pr_start$"),
                 CallbackQueryHandler(list_repos, pattern="^back_to_repos$"),
+                CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
                 MessageHandler(filters.Document.ALL, handle_document),
             ],
             SELECTING_DOWNLOAD_TYPE: [
@@ -447,8 +781,16 @@ def main():
                 CallbackQueryHandler(handle_cd, pattern="^cd:"),
                 CallbackQueryHandler(delete_file_callback, pattern="^delete:"),
                 CallbackQueryHandler(download_file_callback, pattern="^download_file:"),
+                CallbackQueryHandler(view_file_callback, pattern="^view_file:"),
+                CallbackQueryHandler(analyze_file_callback, pattern="^analyze_file:"),
+                CallbackQueryHandler(analyze_folder_callback, pattern="^analyze_folder:"),
+                CallbackQueryHandler(fix_error_callback, pattern="^fix_error:"),
                 CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"),
             ],
+            CREATING_PR_HEAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_pr_head)],
+            CREATING_PR_BASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_pr_base)],
+            CREATING_PR_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_pr_title)],
+            CREATING_PR_BODY: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_pr_submit)],
         },
         fallbacks=[
             CommandHandler("cancel", cancel), 

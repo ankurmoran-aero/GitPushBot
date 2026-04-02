@@ -6,16 +6,19 @@
 
 ## 🧐 What It Does
 GitPushBot provides a seamless mobile-first experience for GitHub management. 
-- **Pushes Files:** Send any document (code, images, text) to the bot, and it will instantly upload or update it in your repository.
-- **Deletes Files:** Browse your repo and remove files you no longer need.
-- **Navigates Directories:** Explore your repository structure through intuitive inline buttons.
-- **Multi-Repo Support:** Switch between all your repositories in seconds.
+- **📤 Instant Uploads:** Send any document (code, images, text) to the bot, and it will instantly upload or update it in your repository.
+- **👁 File Viewing:** Read any file in your repo directly in Telegram with clean code formatting.
+- **🧠 AI Analysis (Powered by Gemini 3.1):** Use AI to analyze individual files or entire folders. Identify bugs, architectural issues, and improvements with line-by-line precision.
+- **🛠 Magic Fix:** AI detected an error? Fix it instantly with one click. The bot will rewrite and push the corrected code for you.
+- **🔁 Pull Requests:** Create new Pull Requests directly from the bot.
+- **📥 Repository Downloads:** Download specific files or generate a ZIP of your entire repository.
+- **📂 Navigation:** Explore your repository structure through intuitive grid-style inline buttons.
 
 ## ⚙️ How It Works
-1. **Authentication:** The bot uses your **GitHub Personal Access Token (PAT)**. This token is stored only within your Telegram session for maximum security.
-2. **Session Logic:** It utilizes a `ConversationHandler` to guide you through selecting a repo and performing actions.
-3. **API Integration:** Powered by `PyGithub`, it interacts with the GitHub REST API to perform file operations on the `main` branch.
-4. **UI/UX:** Uses Telegram's HTML styling and inline keyboards for a modern, dashboard-like feel.
+1. **Authentication:** Uses your **GitHub Personal Access Token (PAT)**. This token is stored only within your Telegram session for maximum security.
+2. **AI Integration:** Powered by **OpenRouter** and **Gemini 3.1 Flash Lite**, providing lightning-fast code reviews.
+3. **Session Logic:** It utilizes a `ConversationHandler` to guide you through selecting a repo and performing actions.
+4. **API Integration:** Powered by `PyGithub`, it interacts with the GitHub REST API.
 
 ---
 
@@ -37,7 +40,7 @@ GitPushBot provides a seamless mobile-first experience for GitHub management.
    pip install -r requirements.txt
    ```
 3. **Configure:**
-   Rename `config.py` and add your bot token, or use a `.env` file.
+   Update `config.py` with your Telegram Bot Token and OpenRouter API Key.
 4. **Run:**
    ```bash
    python bot.py
