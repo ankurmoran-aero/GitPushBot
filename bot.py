@@ -15,16 +15,25 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
 )
-import config
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
 # Load environment variables from .env if it exists
 load_dotenv()
 
-# Priority: 1. Environment Variable, 2. config.py
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or getattr(config, 'TELEGRAM_BOT_TOKEN', "YOUR_BOT_TOKEN_HERE")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or getattr(config, 'OPENROUTER_API_KEY', "YOUR_OPENROUTER_API_KEY_HERE")
+# Centralized Configuration: Priority 1: .env -> Priority 2: config.py
+try:
+    import config
+except ImportError:
+    config = None
+
+def get_config(key, default=None):
+    return os.getenv(key) or (getattr(config, key, default) if config else default)
+
+TELEGRAM_BOT_TOKEN = get_config('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+AI_API_KEY = get_config('API_KEY', 'YOUR_API_KEY_HERE')
+AI_API_BASE = get_config('API_BASE', 'https://openrouter.ai/api/v1')
+AI_MODEL_NAME = get_config('API_MODEL', 'google/gemini-3.1-flash-lite-preview')
 
 # Enable logging
 logging.basicConfig(
@@ -48,11 +57,11 @@ logger = logging.getLogger(__name__)
 # UI Constant
 BANNER = "<b>🚀 GitPushBot | GitHub Manager</b>\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
-# Initialize OpenRouter LLM client
+# Initialize AI client with dynamic base URL
 llm_client = AsyncOpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
-)
+    base_url=AI_API_BASE,
+    api_key=AI_API_KEY,
+) if AI_API_KEY and AI_API_KEY != "YOUR_API_KEY_HERE" else None
 
 def get_github_client(context: ContextTypes.DEFAULT_TYPE):
     """Get GitHub client for the current user."""
@@ -532,7 +541,7 @@ async def analyze_file_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
         
         response = await llm_client.chat.completions.create(
-            model="google/gemini-3.1-flash-lite-preview", 
+            model=AI_MODEL_NAME, 
             messages=[
                 {"role": "system", "content": "You are an expert code reviewer and debugger."},
                 {"role": "user", "content": prompt}
@@ -595,7 +604,7 @@ async def fix_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         
         response = await llm_client.chat.completions.create(
-            model="google/gemini-3.1-flash-lite-preview",
+            model=AI_MODEL_NAME,
             messages=[
                 {"role": "system", "content": "You are an expert code fixer. Provide only raw fixed code."},
                 {"role": "user", "content": prompt}
@@ -665,7 +674,7 @@ async def analyze_folder_callback(update: Update, context: ContextTypes.DEFAULT_
         )
         
         response = await llm_client.chat.completions.create(
-            model="google/gemini-3.1-flash-lite-preview",
+            model=AI_MODEL_NAME,
             messages=[{"role": "system", "content": "You are an expert software architect."}, {"role": "user", "content": prompt}],
             max_tokens=800
         )

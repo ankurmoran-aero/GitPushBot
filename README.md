@@ -40,7 +40,8 @@ GitPushBot provides a seamless mobile-first experience for GitHub management.
    pip install -r requirements.txt
    ```
 3. **Configure:**
-   Update `config.py` with your Telegram Bot Token and OpenRouter API Key.
+   You can either use a `.env` file (recommended) OR edit `config.py`. 
+   To use `.env`, create a `.env` file with `TELEGRAM_BOT_TOKEN`, `API_KEY`, `API_BASE`, and `API_MODEL`.
 4. **Run:**
    ```bash
    python bot.py
