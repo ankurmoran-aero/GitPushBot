@@ -3,7 +3,7 @@ import logging
 import io
 import re
 import html
-from github import Github
+from github import Github, Auth, GithubException
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -160,7 +160,7 @@ async def receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     token = update.message.text.strip()
     
     try:
-        g = Github(token)
+        g = Github(auth=Auth.Token(token))
         user = g.get_user()
         username = html.escape(user.login)
         
@@ -169,9 +169,17 @@ async def receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         
         await update.message.reply_html(f"✅ <b>Token Verified!</b>\nWelcome, <code>{username}</code>. Fetching your repositories...")
         return await list_repos(update, context)
+    except GithubException as e:
+        logger.error(f"GitHub Error during token validation: {e.status} {getattr(e, 'data', str(e))}")
+        if e.status == 401:
+            await update.message.reply_html("❌ <b>Invalid Token</b>.\nThe GitHub PAT provided is incorrect or expired. Please send a valid one.")
+        else:
+            error_msg = getattr(e, 'data', {}).get('message', 'Unknown error') if hasattr(e, 'data') and isinstance(e.data, dict) else 'Unknown error'
+            await update.message.reply_html(f"❌ <b>GitHub Error</b>.\nConnection failed: {error_msg}\nPlease try again.")
+        return SETTING_TOKEN
     except Exception as e:
-        logger.error(f"Token validation failed: {e}")
-        await update.message.reply_html("❌ <b>Invalid Token</b> or connection error.\nPlease send a valid GitHub PAT.")
+        logger.error(f"Unexpected token validation failed: {e}")
+        await update.message.reply_html("❌ <b>Technical Error</b>.\nFailed to validate token. Please try again later.")
         return SETTING_TOKEN
 
 async def list_repos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
