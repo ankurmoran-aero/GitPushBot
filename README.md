@@ -1,6 +1,6 @@
 # 🚀 GitPushBot | Advanced Repository Manager
 
-GitPushBot is a high-performance Telegram bot designed to turn your mobile device into a powerful development workstation. It bridges the gap between local files and GitHub repositories with zero friction, now enhanced with Google's **Gemini 1.5 Flash** for intelligent code insights.
+GitPushBot is a high-performance Telegram bot designed to turn your mobile device into a powerful development workstation. It bridges the gap between local files and GitHub repositories with zero friction, now enhanced with Google's **Gemini 3 Flash** for intelligent code insights.
 
 ## ✨ Features
 
@@ -16,7 +16,7 @@ GitPushBot is a high-performance Telegram bot designed to turn your mobile devic
 ## 🚀 Quick Start
 
 1.  **Bot Token:** Obtain a bot token from [@BotFather](https://t.me/BotFather).
-2.  **AI Power:** Get an API key from [OpenRouter](https://openrouter.ai/) (supports Gemini 1.5 Flash).
+2.  **AI Power:** Get an API key from [OpenRouter](https://openrouter.ai/) (supports Gemini 3 Flash).
 3.  **Environment:** Create a `.env` file or update `config.py` with your tokens.
 4.  **Launch:**
     ```bash
