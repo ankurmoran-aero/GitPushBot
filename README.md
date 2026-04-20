@@ -1,51 +1,36 @@
-# 🚀 GitPushBot - Your GitHub Manager on Telegram
+# 🚀 GitPushBot | Advanced Repository Manager
 
-**GitPushBot** is a high-performance, open-source Telegram bot designed to bridge the gap between your local files and GitHub repositories. It allows developers to manage their code directly from the Telegram interface with ease and security.
+GitPushBot is a high-performance Telegram bot designed to turn your mobile device into a powerful development workstation. It bridges the gap between local files and GitHub repositories with zero friction, now enhanced with Google's **Gemini 1.5 Flash** for intelligent code insights.
+
+## ✨ Features
+
+*   **📤 Instant Synchronization:** Push or update files in your repository directly from Telegram.
+*   **🔍 AI Summarization:** Get high-level, professional summaries of files or entire folders to understand code logic instantly.
+*   **🧠 Deep AI Analysis:** Identify architectural issues, potential bugs, and logic errors with line-by-line feedback.
+*   **🛠 Magic Fix:** Automatically resolve detected code issues with AI-driven patches pushed directly to your branch.
+*   **📥 Archive Generation:** Download entire repositories as ZIP files or fetch specific assets on the go.
+*   **🔁 Pull Request Management:** Create and submit Pull Requests without leaving the chat.
+*   **🛡 Secure Sessions:** Uses GitHub PATs stored only in temporary session memory. Supports Fine-grained tokens for maximum security.
+*   **📂 Professional UI:** A clean, grid-based interface with inline keyboards and path-shortening technology to handle deep directory structures.
+
+## 🚀 Quick Start
+
+1.  **Bot Token:** Obtain a bot token from [@BotFather](https://t.me/BotFather).
+2.  **AI Power:** Get an API key from [OpenRouter](https://openrouter.ai/) (supports Gemini 1.5 Flash).
+3.  **Environment:** Create a `.env` file or update `config.py` with your tokens.
+4.  **Launch:**
+    ```bash
+    pip install -r requirements.txt
+    python bot.py
+    ```
+
+## 🛠 Tech Stack
+
+*   **Language:** Python 3.10+
+*   **Framework:** `python-telegram-bot` (v21+)
+*   **GitHub API:** `PyGithub`
+*   **AI Integration:** `OpenAI` SDK (via OpenRouter)
+*   **Process Management:** Recommended to run with `PM2`.
 
 ---
-
-## 🧐 What It Does
-GitPushBot provides a seamless mobile-first experience for GitHub management. 
-- **📤 Instant Uploads:** Send any document (code, images, text) to the bot, and it will instantly upload or update it in your repository.
-- **👁 File Viewing:** Read any file in your repo directly in Telegram with clean code formatting.
-- **🧠 AI Analysis (Powered by Gemini 3.1):** Use AI to analyze individual files or entire folders. Identify bugs, architectural issues, and improvements with line-by-line precision.
-- **🛠 Magic Fix:** AI detected an error? Fix it instantly with one click. The bot will rewrite and push the corrected code for you.
-- **🔁 Pull Requests:** Create new Pull Requests directly from the bot.
-- **📥 Repository Downloads:** Download specific files or generate a ZIP of your entire repository.
-- **📂 Navigation:** Explore your repository structure through intuitive grid-style inline buttons.
-
-## ⚙️ How It Works
-1. **Authentication:** Uses your **GitHub Personal Access Token (PAT)**. This token is stored only within your Telegram session for maximum security.
-2. **AI Integration:** Powered by **OpenRouter** and **Gemini 3.1 Flash Lite**, providing lightning-fast code reviews.
-3. **Session Logic:** It utilizes a `ConversationHandler` to guide you through selecting a repo and performing actions.
-4. **API Integration:** Powered by `PyGithub`, it interacts with the GitHub REST API.
-
----
-
-## 👨‍💻 Developed By
-**GitPushBot** was created with ❤️ by **Ankur** ([@Ankurslys](https://t.me/Ankurslys)).
-
----
-
-## 🚀 Setup & Installation
-
-### For Normal Users
-1. **Clone the Repo:**
-   ```bash
-   git clone https://github.com/ankurmoran96-openai/GitPushBot.git
-   cd GitPushBot
-   ```
-2. **Install Dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. **Configure:**
-   You can either use a `.env` file (recommended) OR edit `config.py`. 
-   To use `.env`, create a `.env` file with `TELEGRAM_BOT_TOKEN`, `API_KEY`, `API_BASE`, and `API_MODEL`.
-4. **Run:**
-   ```bash
-   python bot.py
-   ```
-
-## 📄 License
-This project is licensed under the **MIT License**.
+*Developed with ❤️ by Ankur. Bridging the gap between mobile and code.*
