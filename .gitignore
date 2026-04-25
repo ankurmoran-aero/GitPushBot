@@ -4,3 +4,4 @@ __pycache__/
 .DS_Store
 *.db
 .env
+bot.log\nbot_startup.log\nbot_test.log\ntest_output.log\n__pycache__/\n.env

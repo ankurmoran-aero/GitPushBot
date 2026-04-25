@@ -33,7 +33,7 @@ def get_config(key, default=None):
 TELEGRAM_BOT_TOKEN = get_config('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
 AI_API_KEY = get_config('API_KEY', 'YOUR_API_KEY_HERE')
 AI_API_BASE = get_config('API_BASE', 'https://openrouter.ai/api/v1')
-AI_MODEL_NAME = get_config('API_MODEL', 'google/gemini-3-flash-preview')
+AI_MODEL_NAME = get_config('API_MODEL', 'openai/gpt-4o')
 
 # Enable logging
 logging.basicConfig(
@@ -43,17 +43,19 @@ logger = logging.getLogger(__name__)
 
 # States for ConversationHandler
 (
-    SETTING_TOKEN, 
-    SELECTING_REPO, 
-    SELECTING_ACTION, 
-    LISTING_CONTENTS, 
+    SETTING_TOKEN,
+    SELECTING_REPO,
+    SELECTING_ACTION,
+    LISTING_CONTENTS,
     SELECTING_DOWNLOAD_TYPE,
     CREATING_PR_HEAD,
     CREATING_PR_BASE,
     CREATING_PR_TITLE,
-    CREATING_PR_BODY
-) = range(9)
-
+    CREATING_PR_BODY,
+    CREATING_REPO_NAME,
+    CREATING_REPO_PRIVATE,
+    CONFIRMING_DELETE_REPO
+) = range(12)
 # UI Constants
 BANNER = (
     "<b>🚀 GitPushBot | Advanced Repository Manager</b>\n"
@@ -99,12 +101,30 @@ def resolve_path(path_hash: str, context: ContextTypes.DEFAULT_TYPE) -> str:
 def clean_ai_html(text):
     """Sanitize AI output for Telegram HTML parse mode."""
     if not text: return ""
-    # Replace markdown bold with HTML bold
-    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    # Convert markdown code blocks to HTML pre/code
-    text = re.sub(r'```[a-z]*\n?(.*?)\n?```', r'<pre><code>\1</code></pre>', text, flags=re.DOTALL)
-    # Convert inline code backticks to HTML code
-    text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+    
+    # Strip wrapping markdown code blocks if the AI includes them
+    text = text.strip()
+    text = re.sub(r'^```[a-z]*\n?', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\n?```$', '', text)
+    text = text.strip()
+    
+    # Standard HTML tags allowed by Telegram: <b>, <i>, <u>, <s>, <a>, <code>, <pre>
+    # First, escape everything to avoid breaking parse mode with rogue < or >
+    text = html.escape(text)
+    # Then restore specific allowed tags if they were intended as HTML
+    text = text.replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>")
+    text = text.replace("&lt;i&gt;", "<i>").replace("&lt;/i&gt;", "</i>")
+    text = text.replace("&lt;u&gt;", "<u>").replace("&lt;/u&gt;", "</u>")
+    text = text.replace("&lt;s&gt;", "<s>").replace("&lt;/s&gt;", "</s>")
+    text = text.replace("&lt;code&gt;", "<code>").replace("&lt;/code&gt;", "</code>")
+    text = text.replace("&lt;pre&gt;", "<pre>").replace("&lt;/pre&gt;", "</pre>")
+    
+    # Handle common markdown formatting if AI didn't follow HTML instructions
+    if "<b>" not in text and "**" in text:
+        text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    if "<code>" not in text and "`" in text:
+        text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+        
     return text
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -131,10 +151,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             "Your <b>GitHub PAT</b> is stored only within your encrypted session. We recommend <b>Fine-grained tokens</b>.\n\n"
             "<b>✨ Professional Features:</b>\n"
             "• <b>Push & Update:</b> Instant file synchronization.\n"
-            "• <b>AI Summarize:</b> Understand complex code instantly.\n"
-            "• <b>AI Analysis:</b> Deep architectural code review.\n"
             "• <b>Archives:</b> One-tap repository downloads.\n"
-            "• <b>Management:</b> PR creation and file deletion.\n\n"
+            "• <b>Management:</b> PR creation and file deletion.\n"
+            "• <b>✨ AI:</b> <i>Online & Active (GPT-4o)</i>\n\n"
             "🔑 <b>Please provide your GitHub PAT to begin:</b>"
         )
         keyboard = [
@@ -237,7 +256,9 @@ async def list_repos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         user_gh = g.get_user()
         repos = user_gh.get_repos()
         
-        keyboard = []
+        keyboard = [
+            [InlineKeyboardButton("➕ Create New Repository", callback_data="create_repo_start")]
+        ]
         for repo in repos:
             repo_name = html.escape(repo.name)
             keyboard.append([InlineKeyboardButton(f"📁 {repo_name}", callback_data=f"repo:{repo.name}")])
@@ -272,7 +293,7 @@ async def show_action_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         [InlineKeyboardButton("📤 Upload File", callback_data="initiate")],
         [InlineKeyboardButton("🔍 Summarize", callback_data="list_contents_summarize"), InlineKeyboardButton("🧠 Analyze", callback_data="list_contents_analyze")],
         [InlineKeyboardButton("👁 View", callback_data="list_contents_view"), InlineKeyboardButton("📥 Download", callback_data="list_contents_download")],
-        [InlineKeyboardButton("🗑 Delete", callback_data="list_contents_delete"), InlineKeyboardButton("🔁 Pull Request", callback_data="create_pr_start")],
+        [InlineKeyboardButton("🗑 Delete Repo", callback_data="list_contents_delete_repo"), InlineKeyboardButton("🔁 Pull Request", callback_data="create_pr_start")],
         [InlineKeyboardButton("🔙 Switch Repository", callback_data="back_to_repos")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -576,59 +597,44 @@ async def view_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def summarize_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-
+    
     path_hash = query.data.split(":", 1)[1]
     file_path = resolve_path(path_hash, context)
     repo_name = context.user_data['repo_name']
-    g = get_github_client(context)
-    if not g: return ConversationHandler.END
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
-
+    
     if not llm_client:
-        await query.edit_message_text("❌ <b>AI Unavailable:</b> API Key not configured.", parse_mode=ParseMode.HTML)
+        await query.edit_message_text("❌ AI client not configured. Check your API key.")
         return SELECTING_ACTION
 
-    await query.edit_message_text(f"🔍 <b>Summarizing</b> <code>{html.escape(file_path)}</code>...", parse_mode=ParseMode.HTML)
-
+    g = get_github_client(context)
+    repo = g.get_user().get_repo(repo_name)
+    def_branch = get_repo_default_branch(repo)
+    
+    await query.edit_message_text(f"⏳ <b>AI is summarizing:</b> <code>{html.escape(file_path)}</code>...", parse_mode=ParseMode.HTML)
+    
     try:
-        contents = repo.get_contents(file_path, ref=def_branch)
-        try:
-            decoded_content = contents.decoded_content.decode('utf-8')
-        except UnicodeDecodeError:
-            decoded_content = "Binary file."
-
-        prompt = (
-            f"Summarize the following code from {file_path}. "
-            "Explain briefly what it does and how it works. Keep it professional and concise.\n"
-            "Use valid HTML tags like <b>, <i>, <code>.\n\n"
-            f"CODE:\n{decoded_content[:8000]}"
-        )
+        content_file = repo.get_contents(file_path, ref=def_branch)
+        decoded_content = content_file.decoded_content.decode('utf-8')
+        
+        prompt = f"You are a Senior Code Reviewer and Expert Software Engineer explaining to a developer on Telegram. Summarize the following file contents concisely, accurately, and professionally. Use ONLY valid Telegram HTML tags (<b>, <i>, <code>, <pre>, <u>, <s>) for formatting. Do NOT use standard markdown like ** or `.\n\nPath: {file_path}\n\nContent:\n{decoded_content}"
         
         response = await llm_client.chat.completions.create(
-            model=AI_MODEL_NAME, 
-            messages=[
-                {"role": "system", "content": "You are a senior developer who provides clear, high-level summaries. Use valid HTML only."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500
+            model=AI_MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=800
         )
         
         summary = response.choices[0].message.content
+        formatted_summary = f"{BANNER}🔍 <b>AI Summary:</b> <code>{html.escape(file_path)}</code>\n\n{clean_ai_html(summary)}"
         
-        processed_summary = clean_ai_html(summary)
-        msg = f"🔍 <b>Summary:</b> <code>{html.escape(file_path)}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━\n{processed_summary}"
-        
-        keyboard = [[InlineKeyboardButton("🔙 Back to Repo", callback_data="back_to_menu")]]
-        try:
-            await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
-        except:
-            await query.edit_message_text(re.sub(r'<[^>]+>', '', msg), reply_markup=InlineKeyboardMarkup(keyboard))
-            
+        if len(formatted_summary) > 4000:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=formatted_summary, parse_mode=ParseMode.HTML)
+        else:
+            await query.edit_message_text(formatted_summary, parse_mode=ParseMode.HTML)
         return SELECTING_ACTION
     except Exception as e:
-        logger.error(f"Error summarizing file: {e}")
-        await query.edit_message_text(f"❌ <b>Summary Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        logger.error(f"AI Summary Error: {e}")
+        await query.edit_message_text(f"❌ <b>AI Summary Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
         return SELECTING_ACTION
 
 async def summarize_folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -638,150 +644,102 @@ async def summarize_folder_callback(update: Update, context: ContextTypes.DEFAUL
     path_hash = query.data.split(":", 1)[1]
     folder_path = resolve_path(path_hash, context)
     repo_name = context.user_data['repo_name']
+    
+    if not llm_client:
+        await query.edit_message_text("❌ AI client not configured. Check your API key.")
+        return SELECTING_ACTION
+
     g = get_github_client(context)
-    if not g: return ConversationHandler.END
     repo = g.get_user().get_repo(repo_name)
     def_branch = get_repo_default_branch(repo)
     
-    if not llm_client:
-        await query.edit_message_text("❌ AI client not configured.")
-        return SELECTING_ACTION
-
-    display_path = html.escape(folder_path) if folder_path else "Root"
-    await query.edit_message_text(f"🔍 <b>Summarizing folder</b> <code>{display_path}</code>...", parse_mode=ParseMode.HTML)
+    await query.edit_message_text(f"⏳ <b>AI is summarizing folder:</b> <code>{html.escape(folder_path or 'root')}</code>...", parse_mode=ParseMode.HTML)
     
     try:
-        def get_files(repo, path, branch, limit=10):
-            files = []
-            try:
-                contents = repo.get_contents(path, ref=branch)
-                for c in contents:
-                    if len(files) >= limit: break
-                    if c.type == "dir": continue
-                    if c.name.endswith(('.py', '.js', '.ts', '.html', '.css', '.json', '.md', '.toml', '.txt')):
-                        files.append(c)
-            except: pass
-            return files
-            
-        files = get_files(repo, folder_path, branch=def_branch)
-        file_list = "\n".join([f"- {f.path}" for f in files])
+        contents = repo.get_contents(folder_path, ref=def_branch)
+        file_structure = []
+        for c in contents:
+            file_structure.append(f"{'[DIR] ' if c.type == 'dir' else ''}{c.name}")
         
+        structure_str = "\n".join(file_structure)
         prompt = (
-            f"Provide a high-level summary of the folder '{folder_path}' which contains these files:\n{file_list}\n"
-            "Explain the architectural purpose of this folder. Keep it short and professional.\n"
-            "Use valid HTML only (<b>, <i>, <code>)."
+            f"You are a Senior Code Reviewer and Expert Software Engineer explaining to a developer on Telegram.\n"
+            f"Summarize the purpose and structure of this folder accurately.\n\nFolder: {folder_path or 'root'}\n\nContents:\n{structure_str}\n\n"
+            "TASK: Provide a detailed, highly accurate summary. You MUST include:\n"
+            "1. 🚀 What this project/folder ACTUALLY does, its core focus, and its goal.\n"
+            "2. ✨ Core project features.\n"
+            "3. 📊 Estimated Language Breakdown (e.g., 'Python 90%, Shell 10%').\n"
+            "4. 🏅 Code Review & Judgment: Tell me how impressive or garbage the project looks, and how useful it actually is.\n\n"
+            "STRICT FORMATTING: You are answering on Telegram. Use ONLY valid Telegram HTML tags (<b>, <i>, <code>, <pre>, <u>, <s>) for formatting. Do NOT use markdown like ** or `. Do NOT generate full HTML web pages or DOCTYPEs."
         )
         
         response = await llm_client.chat.completions.create(
             model=AI_MODEL_NAME,
-            messages=[{"role": "system", "content": "You are an expert architect. Use valid HTML only."}, {"role": "user", "content": prompt}],
-            max_tokens=500
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=800
         )
         
-        processed_summary = clean_ai_html(response.choices[0].message.content)
-        msg = f"🔍 <b>Folder Summary:</b> <code>{display_path}</code>\n━━━━━━━━━━━━━━━━━━━━━━━━\n{processed_summary}"
+        summary = response.choices[0].message.content
+        formatted_summary = f"{BANNER}🔍 <b>Folder Summary:</b> <code>{html.escape(folder_path or 'root')}</code>\n\n{clean_ai_html(summary)}"
         
-        keyboard = [[InlineKeyboardButton("🔙 Back to Repo", callback_data="back_to_menu")]]
-        try:
-            await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
-        except:
-            await query.edit_message_text(re.sub(r'<[^>]+>', '', msg), reply_markup=InlineKeyboardMarkup(keyboard))
-            
+        if len(formatted_summary) > 4000:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=formatted_summary, parse_mode=ParseMode.HTML)
+        else:
+            await query.edit_message_text(formatted_summary, parse_mode=ParseMode.HTML)
         return SELECTING_ACTION
     except Exception as e:
-        logger.error(f"Error summarizing folder: {e}")
-        await query.edit_message_text(f"❌ <b>Summary Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        logger.error(f"AI Folder Summary Error: {e}")
+        await query.edit_message_text(f"❌ <b>Folder Summary Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
         return SELECTING_ACTION
 
 async def analyze_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-
+    
     path_hash = query.data.split(":", 1)[1]
     file_path = resolve_path(path_hash, context)
     repo_name = context.user_data['repo_name']
+    
+    if not llm_client:
+        await query.edit_message_text("❌ AI client not configured. Check your API key.")
+        return SELECTING_ACTION
+
     g = get_github_client(context)
-    if not g: return ConversationHandler.END
     repo = g.get_user().get_repo(repo_name)
     def_branch = get_repo_default_branch(repo)
-
-    if not llm_client:
-        await query.edit_message_text("❌ <b>AI Analysis Unavailable:</b> API Key not configured.", parse_mode=ParseMode.HTML)
-        return SELECTING_ACTION
-
-    await query.edit_message_text(f"🧠 <b>Analyzing</b> <code>{html.escape(file_path)}</code> with AI...", parse_mode=ParseMode.HTML)
-
+    
+    await query.edit_message_text(f"⏳ <b>AI is analyzing:</b> <code>{html.escape(file_path)}</code>...", parse_mode=ParseMode.HTML)
+    
     try:
-        contents = repo.get_contents(file_path, ref=def_branch)
-        try:
-            decoded_content = contents.decoded_content.decode('utf-8')
-        except UnicodeDecodeError:
-            decoded_content = "Cannot analyze binary files."
-
-        # Format code with line numbers to help AI
-        lines = decoded_content.split('\n')
-        numbered_code = '\n'.join([f"{i+1} | {line}" for i, line in enumerate(lines)])
-
+        content_file = repo.get_contents(file_path, ref=def_branch)
+        decoded_content = content_file.decoded_content.decode('utf-8')
+            
         prompt = (
-            f"Analyze the following code from {file_path}. "
-            "Identify any potential errors, bugs, or improvements. \n"
-            "IMPORTANT RULES:\n"
-            "- Always mention the exact line number where the issue is found.\n"
-            "- Ignore 'hardcoded credentials' warnings for config files.\n"
-            "CRITICAL FORMATTING RULES:\n"
-            "1. Format strictly using HTML tags: <b>, <i>, <pre>, <code>.\n"
-            "2. DO NOT use markdown like ** or ### or ```.\n"
-            "3. Escape < and > inside code blocks as &lt; and &gt;.\n"
-            "4. If you detect ANY error that needs fixing, end your response with: [ERROR_DETECTED].\n\n"
-            f"CODE WITH LINE NUMBERS:\n{numbered_code[:6000]}"
+            f"Provide a deep analysis for this file.\n\nFile: {file_path}\n\nContent:\n{decoded_content}\n\n"
+            "TASK: Perform a deep code analysis. You MUST ONLY report on:\n"
+            "1. 🐛 Detect any bugs, critical errors, or security vulnerabilities and report them clearly.\n\n"
+            "FORMATTING: Use ** ** for bold text and emojis. Do not use ANY HTML tags whatsoever. Provide a clean, well-formatted bug & error report."
         )
-
+        
         response = await llm_client.chat.completions.create(
-            model=AI_MODEL_NAME, 
-            messages=[
-                {"role": "system", "content": "You are an expert code reviewer and debugger. You only communicate using valid Telegram HTML tags."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=1000
+            model=AI_MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1500
         )
-
-        raw_analysis = response.choices[0].message.content
-
-        processed_analysis = clean_ai_html(raw_analysis)
-
-        if len(processed_analysis) > 3800:
-            processed_analysis = processed_analysis[:3800] + "..."
-
-        keyboard = [[InlineKeyboardButton("🔙 Back to Repo", callback_data="back_to_menu")]]
-
-        if "[ERROR_DETECTED]" in processed_analysis:
-            processed_analysis = processed_analysis.replace("[ERROR_DETECTED]", "")
-            p_hash = store_path(file_path, context)
-            keyboard.insert(0, [InlineKeyboardButton("🛠 Magic Fix (Auto-Resolve)", callback_data=f"fix_error:{p_hash}")])
-
-        msg = f"🧠 <b>Analysis for</b> <code>{html.escape(file_path)}</code>:\n\n{processed_analysis}"
-
-        try:
-            await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            logger.error(f"HTML Parse Error in analyze_file: {e}")
-            clean_msg = re.sub(r'<(?!(?:b|i|pre|code|/b|/i|/pre|/code)\b)[^>]+>', '', msg)
-            try:
-                await query.edit_message_text(clean_msg, parse_mode=ParseMode.HTML)
-            except:
-                await query.edit_message_text(re.sub(r'<[^>]+>', '', msg))
-
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Actions:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        
+        analysis = response.choices[0].message.content
+        formatted_analysis = f"{BANNER}🧠 <b>AI Deep Analysis:</b> <code>{html.escape(file_path)}</code>\n\n{clean_ai_html(analysis)}"
+        
+        if len(formatted_analysis) > 4000:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=formatted_analysis, parse_mode=ParseMode.HTML)
+        else:
+            await query.edit_message_text(formatted_analysis, parse_mode=ParseMode.HTML)
+            
         return SELECTING_ACTION
     except Exception as e:
-        logger.error(f"Error analyzing file: {e}")
-        await query.edit_message_text(f"❌ <b>Analysis Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        logger.error(f"AI Analysis Error: {e}")
+        await query.edit_message_text(f"❌ <b>AI Analysis Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
         return SELECTING_ACTION
-
 
 async def fix_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -791,7 +749,6 @@ async def fix_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     file_path = resolve_path(path_hash, context)
     repo_name = context.user_data['repo_name']
     g = get_github_client(context)
-    if not g: return ConversationHandler.END
     repo = g.get_user().get_repo(repo_name)
     def_branch = get_repo_default_branch(repo)
 
@@ -806,28 +763,31 @@ async def fix_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         decoded_content = contents.decoded_content.decode('utf-8')
 
         prompt = (
-            f"Fix the errors in the following code from {file_path}. "
-            "Return ONLY the fully corrected raw code. Do not include any explanations, markdown formatting, or HTML tags. "
+            f"Fix the bugs/errors in this code from {file_path}. "
+            "IMPORTANT: Return ONLY the fully corrected raw code. "
+            "Do not include any explanations, comments outside the code, or markdown formatting blocks."
             f"\n\n{decoded_content}"
         )
 
         response = await llm_client.chat.completions.create(
             model=AI_MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "You are an expert code fixer. Provide only raw fixed code."},
-                {"role": "user", "content": prompt}
-            ],
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
             max_tokens=4000
         )
 
         fixed_code = response.choices[0].message.content.strip()
-        fixed_code = re.sub(r"^```[a-zA-Z0-9]*\n", "", fixed_code)
-        fixed_code = re.sub(r"```$", "", fixed_code).strip()
+        # More robust stripping of markdown blocks
+        if fixed_code.startswith("```"):
+            fixed_code = re.sub(r"^```[a-zA-Z0-9]*\n", "", fixed_code)
+            fixed_code = re.sub(r"```$", "", fixed_code).strip()
 
-        repo.update_file(contents.path, f"AI Fix {file_path}", bytes(fixed_code, 'utf-8'), contents.sha, branch=def_branch)
+        if not fixed_code or len(fixed_code) < 10:
+             raise ValueError("AI returned invalid or empty code.")
 
-        keyboard = [[InlineKeyboardButton("🔙 Back to Repo", callback_data="back_to_menu")]]
-        await query.edit_message_text(f"✅ <b>Successfully fixed and pushed:</b> <code>{html.escape(file_path)}</code>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
+        repo.update_file(contents.path, f"AI Fix {file_path}", fixed_code.encode('utf-8'), contents.sha, branch=def_branch)
+
+        await query.edit_message_text(f"✅ <b>Successfully fixed and pushed:</b> <code>{html.escape(file_path)}</code>", parse_mode=ParseMode.HTML)
         return SELECTING_ACTION
     except Exception as e:
         logger.error(f"Error fixing file: {e}")
@@ -842,7 +802,6 @@ async def analyze_folder_callback(update: Update, context: ContextTypes.DEFAULT_
     folder_path = resolve_path(path_hash, context)
     repo_name = context.user_data.get('repo_name')
     g = get_github_client(context)
-    if not g: return ConversationHandler.END
     repo = g.get_user().get_repo(repo_name)
     def_branch = get_repo_default_branch(repo)
     
@@ -850,68 +809,62 @@ async def analyze_folder_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text("❌ AI client not configured.")
         return SELECTING_ACTION
 
-    display_path = html.escape(folder_path) if folder_path else "Root"
-    await query.edit_message_text(f"🧠 <b>Analyzing folder</b> <code>{display_path}</code> with AI...\n<i>This might take a minute depending on folder size.</i>", parse_mode=ParseMode.HTML)
+    await query.edit_message_text(f"🧠 <b>Analyzing folder</b> <code>{html.escape(folder_path or 'root')}</code> with AI...", parse_mode=ParseMode.HTML)
     
     try:
-        def get_all_files(repo, path, limit=15, branch="main"):
+        def get_all_files(repo, path, branch, limit=40):
             files = []
             try:
                 contents = repo.get_contents(path, ref=branch)
                 for content in contents:
                     if len(files) >= limit: break
                     if content.type == "dir":
-                        files.extend(get_all_files(repo, content.path, limit - len(files), branch))
-                    elif content.name.endswith(('.py', '.js', '.ts', '.html', '.css', '.json', '.md', '.toml', '.txt')):
-                        files.append(content)
+                        files.extend(get_all_files(repo, content.path, branch, limit - len(files)))
+                    else:
+                        if not any(content.name.lower().endswith(ext) for ext in ['.jpg', '.png', '.jpeg', '.gif', '.zip', '.tar', '.gz', '.mp4', '.mp3', '.pdf', '.exe', '.dll', '.so', '.pyc']):
+                            files.append(content)
             except: pass
             return files
             
         files_to_analyze = get_all_files(repo, folder_path, branch=def_branch)
         
-        combined_content = ""
+        file_contents_list = []
         for f in files_to_analyze:
             try:
-                decoded = f.decoded_content.decode('utf-8')
-                combined_content += f"\n\n--- FILE: {f.path} ---\n{decoded[:1000]}"
-            except: pass
+                file_obj = repo.get_contents(f.path, ref=def_branch)
+                decoded = file_obj.decoded_content.decode('utf-8')
+                file_contents_list.append(f"--- FILE: {f.path} ---\n{decoded}")
+            except Exception:
+                pass
                 
+        all_code = "\n\n".join(file_contents_list)
+        
         prompt = (
-            f"Analyze the following files from the folder '{folder_path}'. "
-            "Identify architectural issues, potential errors, or bugs. "
-            "Keep the response concise.\n"
-            "CRITICAL FORMATTING RULES:\n"
-            "1. Format strictly using HTML tags: <b>, <i>, <pre>, <code>.\n"
-            "2. DO NOT use markdown like ** or ### or ```.\n"
-            "3. Escape < and > inside code blocks as &lt; and &gt;.\n\n"
-            f"CODE:\n{combined_content[:15000]}"
+            f"You are a Senior Code Reviewer and Expert Software Engineer explaining to a developer on Telegram.\n"
+            f"Analyze the entire codebase of the folder '{folder_path}' to detect and fix errors.\n\n"
+            f"Repository Files & Code:\n{all_code}\n\n"
+            "TASK: Provide a comprehensive and highly accurate deep technical analysis. You MUST include:\n"
+            "1. 🚀 What this specific repository/folder ACTUALLY does, its core focus, and its goal.\n"
+            "2. 🐛 <b>Bug Detection & Fixes</b>: Explicitly detect critical errors, bugs, or bad practices across all files. Provide exact fixes and corrected code snippets.\n"
+            "3. 🏗 <b>Architecture Analysis</b>: Evaluate the design pattern and structure.\n"
+            "4. 🏅 <b>Code Review & Judgment</b>: Give your honest opinion on how impressive or garbage the project looks, and how useful it is.\n\n"
+            "STRICT FORMATTING: You are answering on Telegram. Use ONLY valid Telegram HTML tags (<b>, <i>, <code>, <pre>, <u>, <s>). Do NOT use markdown like ** or `. Do NOT generate full HTML web pages or DOCTYPEs."
         )
         
         response = await llm_client.chat.completions.create(
             model=AI_MODEL_NAME,
-            messages=[{"role": "system", "content": "You are an expert software architect. Use valid HTML only."}, {"role": "user", "content": prompt}],
-            max_tokens=1000
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4000
         )
         
-        raw_analysis = response.choices[0].message.content
+        analysis = response.choices[0].message.content
+        formatted_analysis = f"{BANNER}🧠 <b>Folder Analysis:</b> <code>{html.escape(folder_path or 'root')}</code>\n\n{clean_ai_html(analysis)}"
         
-        processed_analysis = clean_ai_html(raw_analysis)
-        if len(processed_analysis) > 3800: processed_analysis = processed_analysis[:3800] + "..."
+        if len(formatted_analysis) > 4000:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=formatted_analysis, parse_mode=ParseMode.HTML)
+        else:
+            await query.edit_message_text(formatted_analysis, parse_mode=ParseMode.HTML)
             
-        keyboard = [[InlineKeyboardButton("🔙 Back to Repo", callback_data="back_to_menu")]]
-        msg = f"🧠 <b>Analysis for Folder</b> <code>{display_path}</code>:\n\n{processed_analysis}"
-        
-        try:
-            await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            logger.error(f"HTML Parse Error in analyze_folder: {e}")
-            clean_msg = re.sub(r'<(?!(?:b|i|pre|code|/b|/i|/pre|/code)\b)[^>]+>', '', msg)
-            try:
-                await query.edit_message_text(clean_msg, parse_mode=ParseMode.HTML)
-            except:
-                await query.edit_message_text(re.sub(r'<[^>]+>', '', msg))
-            
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Actions:", reply_markup=InlineKeyboardMarkup(keyboard))
         return SELECTING_ACTION
     except Exception as e:
         logger.error(f"Error analyzing folder: {e}")
@@ -1000,6 +953,90 @@ async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_html("👋 <b>Logged Out.</b> Your session has been cleared.")
     return ConversationHandler.END
 
+# --- Repo Management Functions ---
+async def create_repo_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        f"{BANNER}➕ <b>Create New Repository</b>\n\n"
+        "Please send the <b>name</b> for your new repository:\n"
+        "<i>(e.g., my-awesome-project)</i>",
+        parse_mode=ParseMode.HTML
+    )
+    return CREATING_REPO_NAME
+
+async def create_repo_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    repo_name = update.message.text.strip()
+    context.user_data['new_repo_name'] = repo_name
+    
+    keyboard = [
+        [InlineKeyboardButton("🌍 Public", callback_data="public"), InlineKeyboardButton("🔒 Private", callback_data="private")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_html(
+        f"{BANNER}Visibility for <b>{html.escape(repo_name)}</b>:",
+        reply_markup=reply_markup
+    )
+    return CREATING_REPO_PRIVATE
+
+async def create_repo_private(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    is_private = query.data == "private"
+    repo_name = context.user_data.get('new_repo_name')
+    g = get_github_client(context)
+    
+    try:
+        user = g.get_user()
+        user.create_repo(repo_name, private=is_private)
+        await query.edit_message_text(f"✅ <b>Success!</b> Repository <code>{html.escape(repo_name)}</code> has been created.", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await query.edit_message_text(f"❌ <b>Error:</b> Could not create repository.\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+    
+    return await list_repos(update, context)
+
+async def list_contents_delete_repo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    repo_name = context.user_data['repo_name']
+    
+    keyboard = [
+        [InlineKeyboardButton("⚠️ YES, DELETE IT", callback_data="confirm_delete_repo")],
+        [InlineKeyboardButton("❌ CANCEL", callback_data="cancel_delete_repo")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"{BANNER}⚠️ <b>DANGER ZONE</b> ⚠️\n\n"
+        f"Are you absolutely sure you want to <b>permanently delete</b> the repository <code>{html.escape(repo_name)}</code>?\n\n"
+        "<i>This action cannot be undone.</i>",
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.HTML
+    )
+    return CONFIRMING_DELETE_REPO
+
+async def delete_repo_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "cancel_delete_repo":
+        return await show_action_menu(update, context)
+        
+    repo_name = context.user_data['repo_name']
+    g = get_github_client(context)
+    
+    try:
+        user = g.get_user()
+        repo = user.get_repo(repo_name)
+        repo.delete()
+        await query.edit_message_text(f"✅ <b>Deleted.</b> Repository <code>{html.escape(repo_name)}</code> has been permanently removed.", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await query.edit_message_text(f"❌ <b>Error:</b> Could not delete repository. (You may need the 'delete_repo' scope in your token).\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
+        
+    return await list_repos(update, context)
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_html("❌ <b>Operation Cancelled.</b>")
     return ConversationHandler.END
@@ -1022,10 +1059,14 @@ def main():
         ],
         states={
             SETTING_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_token)],
-            SELECTING_REPO: [CallbackQueryHandler(repo_choice, pattern="^repo:")],
+            SELECTING_REPO: [
+                CallbackQueryHandler(repo_choice, pattern="^repo:"),
+                CallbackQueryHandler(create_repo_start, pattern="^create_repo_start$")
+            ],
             SELECTING_ACTION: [
                 CallbackQueryHandler(initiate_prompt, pattern="^initiate$"),
                 CallbackQueryHandler(download_menu_prompt, pattern="^download_menu$"),
+                CallbackQueryHandler(list_contents_delete_repo, pattern="^list_contents_delete_repo$"),
                 CallbackQueryHandler(list_contents, pattern="^list_contents_"),
                 CallbackQueryHandler(create_pr_start, pattern="^create_pr_start$"),
                 CallbackQueryHandler(list_repos, pattern="^back_to_repos$"),
@@ -1053,6 +1094,9 @@ def main():
             CREATING_PR_BASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_pr_base)],
             CREATING_PR_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_pr_title)],
             CREATING_PR_BODY: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_pr_submit)],
+            CREATING_REPO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_repo_name)],
+            CREATING_REPO_PRIVATE: [CallbackQueryHandler(create_repo_private, pattern="^(public|private)$")],
+            CONFIRMING_DELETE_REPO: [CallbackQueryHandler(delete_repo_execute, pattern="^(confirm_delete_repo|cancel_delete_repo)$")]
         },
         fallbacks=[
             CommandHandler("cancel", cancel), 
@@ -1068,8 +1112,10 @@ def main():
     application.add_handler(CommandHandler("logout", logout))
     application.add_handler(MessageHandler(filters.Document.ALL & ~filters.COMMAND, handle_document))
 
+
     logger.info("Bot started...")
     application.run_polling()
 
 if __name__ == "__main__":
     main()
+

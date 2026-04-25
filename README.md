@@ -1,36 +1,42 @@
-# 🚀 GitPushBot | Advanced Repository Manager
+# 🚀 GitPushBot: Advanced Mobile Repository Manager
 
-GitPushBot is a high-performance Telegram bot designed to turn your mobile device into a powerful development workstation. It bridges the gap between local files and GitHub repositories with zero friction, now enhanced with Google's **Gemini 3 Flash** for intelligent code insights.
+[![Development](https://img.shields.io/badge/Platform-Mobile-orange?style=flat-square&logo=android)](https://github.com/ankurmoran96-openai)
+[![Developer](https://img.shields.io/badge/Developer-14--Year--Old-blue?style=flat-square)](https://github.com/ankurmoran96-openai)
 
-## ✨ Features
+**GitPushBot** is a high-performance Telegram bot designed to transform your mobile device into a powerful development workstation. It bridges the gap between local storage and GitHub repositories, enabling a seamless "Code-on-the-Go" experience.
 
-*   **📤 Instant Synchronization:** Push or update files in your repository directly from Telegram.
-*   **🔍 AI Summarization:** Get high-level, professional summaries of files or entire folders to understand code logic instantly.
-*   **🧠 Deep AI Analysis:** Identify architectural issues, potential bugs, and logic errors with line-by-line feedback.
-*   **🛠 Magic Fix:** Automatically resolve detected code issues with AI-driven patches pushed directly to your branch.
-*   **📥 Archive Generation:** Download entire repositories as ZIP files or fetch specific assets on the go.
-*   **🔁 Pull Request Management:** Create and submit Pull Requests without leaving the chat.
-*   **🛡 Secure Sessions:** Uses GitHub PATs stored only in temporary session memory. Supports Fine-grained tokens for maximum security.
-*   **📂 Professional UI:** A clean, grid-based interface with inline keyboards and path-shortening technology to handle deep directory structures.
+## ✨ Key Capabilities
+
+*   **📤 Instant Sync**: Push, pull, or update files in any GitHub repository directly from your Telegram chat.
+*   **🧠 AI Code Insights**: Powered by **GPT-4o**, the bot provides professional summaries and architectural analysis of your code.
+*   **🛠 Magic Fix**: Identify and resolve bugs with AI-generated patches that are pushed directly to your repository.
+*   **🔁 PR Management**: Create and manage Pull Requests without ever opening a browser.
+*   **🛡️ Secure & Lightweight**: Handles GitHub Personal Access Tokens (PATs) securely and works perfectly in low-bandwidth environments.
 
 ## 🚀 Quick Start
 
-1.  **Bot Token:** Obtain a bot token from [@BotFather](https://t.me/BotFather).
-2.  **AI Power:** Get an API key from [OpenRouter](https://openrouter.ai/) (supports Gemini 3 Flash).
-3.  **Environment:** Create a `.env` file or update `config.py` with your tokens.
-4.  **Launch:**
+1.  **Clone & Install:**
     ```bash
+    git clone https://github.com/ankurmoran96-openai/GitPushBot.git
+    cd GitPushBot
     pip install -r requirements.txt
-    python bot.py
+    ```
+2.  **Setup Environment:**
+    Update `config.py` or create a `.env` file with your Telegram `BOT_TOKEN` and AI `API_KEY`.
+3.  **Run with PM2:**
+    ```bash
+    pm2 start bot.py --name GitPushBot
     ```
 
-## 🛠 Tech Stack
+## 🔬 Tech Stack
+*   **Backend**: Python 3.10+
+*   **Telegram API**: `python-telegram-bot`
+*   **GitHub Interface**: `PyGithub`
+*   **AI Integration**: OpenAI SDK
 
-*   **Language:** Python 3.10+
-*   **Framework:** `python-telegram-bot` (v21+)
-*   **GitHub API:** `PyGithub`
-*   **AI Integration:** `OpenAI` SDK (via OpenRouter)
-*   **Process Management:** Recommended to run with `PM2`.
+## 🛠 Why This Exists
+Developed by a 14-year-old coding on a phone, GitPushBot was born out of necessity. It proves that with the right tools, mobile development can be as powerful as any desktop setup.
 
 ---
-*Developed with ❤️ by Ankur. Bridging the gap between mobile and code.*
+Developed with ❤️ by **Ankur Moran**.
+[Telegram](https://t.me/Ankxrrrr)
