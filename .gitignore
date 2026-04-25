@@ -1,7 +1,10 @@
 __pycache__/
 .env
-*.pyc
-.DS_Store
+bot.log
+bot_startup.log
+bot_test.log
+bot_output.log
+startup_daisy.log
+test_output.log
 *.db
-.env
-bot.log\nbot_startup.log\nbot_test.log\ntest_output.log\n__pycache__/\n.env
+*.pyc

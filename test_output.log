@@ -1,3 +1,0 @@
-/home/grace/GitPushBot/bot.py:272: PTBUserWarning: If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message. Read this FAQ entry to learn more about the per_* settings: https://github.com/python-telegram-bot/python-telegram-bot/wiki/Frequently-Asked-Questions#what-do-the-per_-settings-in-conversationhandler-do.
-  conv_handler = ConversationHandler(
-2026-03-30 02:30:54,378 - __main__ - INFO - Bot started...
