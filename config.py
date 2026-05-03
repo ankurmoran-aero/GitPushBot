@@ -3,17 +3,13 @@
 # 2. Paste your Telegram Bot Token from @BotFather below.
 # 3. Add your OpenRouter API Key for AI Analysis features.
 
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN"
 
 # AI Analysis Configuration 
 # Use your Own API & ITS key.
-API_BASE = "PLACE_YOUR_API_BASE_HERE"
-API_MODEL = "MODEL_NAME"
-API_KEY = "PASTE_YOUR_API_KEY_HERE"
+API_BASE = "https://api.gptnix.online/v1"
+API_MODEL = "openai/gpt-4o"
+API_KEY = "YOUR_API_KEY"
 
 # Admin Configuration
-ADMIN_IDS = "" # Comma-separated list of Telegram User IDs
-
-
-
-
+ADMIN_IDS = "6049120581" # Comma-separated list of Telegram User IDs
