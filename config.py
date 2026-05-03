@@ -11,6 +11,9 @@ API_BASE = "PLACE_YOUR_API_BASE_HERE"
 API_MODEL = "MODEL_NAME"
 API_KEY = "PASTE_YOUR_API_KEY_HERE"
 
+# Admin Configuration
+ADMIN_IDS = "" # Comma-separated list of Telegram User IDs
+
 
 
 

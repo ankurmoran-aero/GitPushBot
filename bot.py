@@ -3,6 +3,9 @@ import logging
 import io
 import re
 import html
+import asyncio
+import json
+import requests
 from github import Github, Auth, GithubException
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -34,6 +37,12 @@ TELEGRAM_BOT_TOKEN = get_config('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
 AI_API_KEY = get_config('API_KEY', 'YOUR_API_KEY_HERE')
 AI_API_BASE = get_config('API_BASE', 'https://openrouter.ai/api/v1')
 AI_MODEL_NAME = get_config('API_MODEL', 'openai/gpt-4o')
+ADMIN_IDS = [int(i.strip()) for i in get_config('ADMIN_IDS', '').split(',') if i.strip().isdigit()]
+# Add the creator and the requested user as default admins if none specified
+if not ADMIN_IDS:
+    ADMIN_IDS = [7167704900, 6049120581]
+
+USER_FILE = "users.json"
 
 # Enable logging
 logging.basicConfig(
@@ -76,10 +85,10 @@ def get_github_client(context: ContextTypes.DEFAULT_TYPE):
         return None
     return Github(auth=Auth.Token(token))
 
-def get_repo_default_branch(repo):
+async def get_repo_default_branch(repo):
     """Safely get the default branch of a repository."""
     try:
-        return repo.default_branch
+        return await asyncio.to_thread(lambda: repo.default_branch)
     except:
         return "main"
 
@@ -97,6 +106,26 @@ def store_path(path: str, context: ContextTypes.DEFAULT_TYPE) -> str:
 def resolve_path(path_hash: str, context: ContextTypes.DEFAULT_TYPE) -> str:
     """Resolve a short ID back to the full path."""
     return context.user_data.get('path_map', {}).get(path_hash, path_hash)
+
+def save_user(user_id):
+    """Save user ID to track for broadcast."""
+    try:
+        users = set()
+        if os.path.exists(USER_FILE):
+            try:
+                with open(USER_FILE, "r") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        users = set(data)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        
+        if user_id not in users:
+            users.add(user_id)
+            with open(USER_FILE, "w") as f:
+                json.dump(list(users), f)
+    except Exception as e:
+        logger.error(f"Error saving user: {e}")
 
 def clean_ai_html(text):
     """Sanitize AI output for Telegram HTML parse mode."""
@@ -140,6 +169,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the bot and check for GitHub token."""
     user = update.effective_user
+    save_user(user.id)
     first_name = html.escape(user.first_name) if user.first_name else "User"
 
     if 'github_token' not in context.user_data:
@@ -388,9 +418,19 @@ async def download_zip_callback(update: Update, context: ContextTypes.DEFAULT_TY
     
     try:
         archive_url = repo.get_archive_link("zipball")
+        token = context.user_data.get('github_token')
+        headers = {"Authorization": f"token {token}"} if token else {}
+        
+        def _download_zip():
+            resp = requests.get(archive_url, headers=headers, allow_redirects=True)
+            resp.raise_for_status()
+            return resp.content
+            
+        zip_bytes = await asyncio.to_thread(_download_zip)
+        
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
-            document=archive_url,
+            document=zip_bytes,
             filename=f"{repo_name}_main.zip",
             caption=f"📦 <b>Archive for</b> <code>{html.escape(repo_name)}</code> (main branch)",
             parse_mode=ParseMode.HTML
@@ -515,8 +555,8 @@ async def delete_file_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("⚠️ Session expired.")
         return ConversationHandler.END
 
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
+    repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+    def_branch = await get_repo_default_branch(repo)
     
     try:
         contents = repo.get_contents(file_path, ref=def_branch)
@@ -537,18 +577,29 @@ async def download_file_callback(update: Update, context: ContextTypes.DEFAULT_T
     repo_name = context.user_data.get('repo_name')
     g = get_github_client(context)
     if not g: return ConversationHandler.END
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
+    repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+    def_branch = await get_repo_default_branch(repo)
 
-    await query.edit_message_text(f"⏳ <b>Downloading</b> <code>{html.escape(file_path)}</code>...", parse_mode=ParseMode.HTML)
+    await query.edit_message_text(f"⏳ <b>Downloading:</b> <code>{html.escape(file_path)}</code>...", parse_mode=ParseMode.HTML)
 
     try:
         contents = repo.get_contents(file_path, ref=def_branch)
+        token = context.user_data.get('github_token')
+        headers = {"Authorization": f"token {token}"} if token else {}
+        
+        import requests
+        def _download():
+            resp = requests.get(contents.download_url, headers=headers)
+            resp.raise_for_status()
+            return resp.content
+            
+        file_bytes = await asyncio.to_thread(_download)
+        
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
-            document=contents.download_url,
+            document=file_bytes,
             filename=contents.name,
-            caption=f"📥 <b>File:</b> <code>{html.escape(file_path)}</code>",
+            caption=f"✨ <b>Download Complete</b>\n\n📂 <b>Repository:</b> <code>{html.escape(repo_name)}</code>\n📄 <b>File:</b> <code>{html.escape(file_path)}</code>\n\n⚙️ <i>Processed by GitPushBot</i>",
             parse_mode=ParseMode.HTML
         )
         return await show_action_menu(update, context)
@@ -566,8 +617,8 @@ async def view_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     repo_name = context.user_data['repo_name']
     g = get_github_client(context)
     if not g: return ConversationHandler.END
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
+    repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+    def_branch = await get_repo_default_branch(repo)
 
     try:
         contents = repo.get_contents(file_path, ref=def_branch)
@@ -607,14 +658,14 @@ async def summarize_file_callback(update: Update, context: ContextTypes.DEFAULT_
         return SELECTING_ACTION
 
     g = get_github_client(context)
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
+    repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+    def_branch = await get_repo_default_branch(repo)
     
     await query.edit_message_text(f"⏳ <b>AI is summarizing:</b> <code>{html.escape(file_path)}</code>...", parse_mode=ParseMode.HTML)
     
     try:
-        content_file = repo.get_contents(file_path, ref=def_branch)
-        decoded_content = content_file.decoded_content.decode('utf-8')
+        content_file = await asyncio.to_thread(lambda: repo.get_contents(file_path, ref=def_branch))
+        decoded_content = await asyncio.to_thread(lambda: content_file.decoded_content.decode('utf-8'))
         
         prompt = f"You are a Senior Code Reviewer and Expert Software Engineer explaining to a developer on Telegram. Summarize the following file contents concisely, accurately, and professionally. Use ONLY valid Telegram HTML tags (<b>, <i>, <code>, <pre>, <u>, <s>) for formatting. Do NOT use standard markdown like ** or `.\n\nPath: {file_path}\n\nContent:\n{decoded_content}"
         
@@ -650,25 +701,56 @@ async def summarize_folder_callback(update: Update, context: ContextTypes.DEFAUL
         return SELECTING_ACTION
 
     g = get_github_client(context)
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
+    repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+    def_branch = await get_repo_default_branch(repo)
     
     await query.edit_message_text(f"⏳ <b>AI is summarizing folder:</b> <code>{html.escape(folder_path or 'root')}</code>...", parse_mode=ParseMode.HTML)
     
     try:
-        contents = repo.get_contents(folder_path, ref=def_branch)
-        file_structure = []
-        for c in contents:
-            file_structure.append(f"{'[DIR] ' if c.type == 'dir' else ''}{c.name}")
+        # Helper to get important files for context
+        async def get_context_files(repo, path, branch):
+            important_files = []
+            try:
+                contents = await asyncio.to_thread(lambda: repo.get_contents(path, ref=branch))
+                # Prioritize key files for understanding the project
+                priority_names = ['readme.md', 'main.py', 'app.py', 'bot.py', 'index.js', 'package.json', 'requirements.txt', 'setup.py']
+                
+                # First pass: find exact matches for priority files
+                for content in contents:
+                    if content.type == 'file' and content.name.lower() in priority_names:
+                        important_files.append(content)
+                
+                # Second pass: if we don't have enough, add some more files
+                if len(important_files) < 5:
+                    for content in contents:
+                        if content.type == 'file' and content not in important_files:
+                            if any(content.name.lower().endswith(ext) for ext in ['.py', '.js', '.ts', '.sh', '.json']):
+                                important_files.append(content)
+                                if len(important_files) >= 10: break
+            except: pass
+            return important_files
+
+        context_files = await get_context_files(repo, folder_path, def_branch)
         
-        structure_str = "\n".join(file_structure)
+        file_contents_list = []
+        for f in context_files:
+            try:
+                file_obj = await asyncio.to_thread(lambda: repo.get_contents(f.path, ref=def_branch))
+                decoded = await asyncio.to_thread(lambda: file_obj.decoded_content.decode('utf-8'))
+                # Limit content per file to keep it manageable
+                file_contents_list.append(f"--- FILE: {f.path} ---\n{decoded[:2000]}")
+            except Exception: pass
+            
+        all_code_context = "\n\n".join(file_contents_list)
+        
         prompt = (
             f"You are a Senior Code Reviewer and Expert Software Engineer explaining to a developer on Telegram.\n"
-            f"Summarize the purpose and structure of this folder accurately.\n\nFolder: {folder_path or 'root'}\n\nContents:\n{structure_str}\n\n"
+            f"Analyze the following files to summarize the purpose and structure of the folder '{folder_path or 'root'}' accurately.\n\n"
+            f"Code Context:\n{all_code_context}\n\n"
             "TASK: Provide a detailed, highly accurate summary. You MUST include:\n"
-            "1. 🚀 What this project/folder ACTUALLY does, its core focus, and its goal.\n"
-            "2. ✨ Core project features.\n"
-            "3. 📊 Estimated Language Breakdown (e.g., 'Python 90%, Shell 10%').\n"
+            "1. 🚀 What this project/folder ACTUALLY does, its core focus, and its goal (BE SPECIFIC based on the code provided).\n"
+            "2. ✨ Core project features and functionalities.\n"
+            "3. 📊 Estimated Language Breakdown.\n"
             "4. 🏅 Code Review & Judgment: Tell me how impressive or garbage the project looks, and how useful it actually is.\n\n"
             "STRICT FORMATTING: You are answering on Telegram. Use ONLY valid Telegram HTML tags (<b>, <i>, <code>, <pre>, <u>, <s>) for formatting. Do NOT use markdown like ** or `. Do NOT generate full HTML web pages or DOCTYPEs."
         )
@@ -676,7 +758,7 @@ async def summarize_folder_callback(update: Update, context: ContextTypes.DEFAUL
         response = await llm_client.chat.completions.create(
             model=AI_MODEL_NAME,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=800
+            max_tokens=1500
         )
         
         summary = response.choices[0].message.content
@@ -705,14 +787,14 @@ async def analyze_file_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return SELECTING_ACTION
 
     g = get_github_client(context)
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
+    repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+    def_branch = await get_repo_default_branch(repo)
     
     await query.edit_message_text(f"⏳ <b>AI is analyzing:</b> <code>{html.escape(file_path)}</code>...", parse_mode=ParseMode.HTML)
     
     try:
-        content_file = repo.get_contents(file_path, ref=def_branch)
-        decoded_content = content_file.decoded_content.decode('utf-8')
+        content_file = await asyncio.to_thread(lambda: repo.get_contents(file_path, ref=def_branch))
+        decoded_content = await asyncio.to_thread(lambda: content_file.decoded_content.decode('utf-8'))
             
         prompt = (
             f"Provide a deep analysis for this file.\n\nFile: {file_path}\n\nContent:\n{decoded_content}\n\n"
@@ -749,8 +831,8 @@ async def fix_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     file_path = resolve_path(path_hash, context)
     repo_name = context.user_data['repo_name']
     g = get_github_client(context)
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
+    repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+    def_branch = await get_repo_default_branch(repo)
 
     if not llm_client:
         await query.edit_message_text("❌ AI client not configured.")
@@ -759,8 +841,8 @@ async def fix_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(f"🛠 <b>Fixing</b> <code>{html.escape(file_path)}</code> with AI...", parse_mode=ParseMode.HTML)
 
     try:
-        contents = repo.get_contents(file_path, ref=def_branch)
-        decoded_content = contents.decoded_content.decode('utf-8')
+        contents = await asyncio.to_thread(lambda: repo.get_contents(file_path, ref=def_branch))
+        decoded_content = await asyncio.to_thread(lambda: contents.decoded_content.decode('utf-8'))
 
         prompt = (
             f"Fix the bugs/errors in this code from {file_path}. "
@@ -785,7 +867,7 @@ async def fix_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not fixed_code or len(fixed_code) < 10:
              raise ValueError("AI returned invalid or empty code.")
 
-        repo.update_file(contents.path, f"AI Fix {file_path}", fixed_code.encode('utf-8'), contents.sha, branch=def_branch)
+        await asyncio.to_thread(lambda: repo.update_file(contents.path, f"AI Fix {file_path}", fixed_code.encode('utf-8'), contents.sha, branch=def_branch))
 
         await query.edit_message_text(f"✅ <b>Successfully fixed and pushed:</b> <code>{html.escape(file_path)}</code>", parse_mode=ParseMode.HTML)
         return SELECTING_ACTION
@@ -802,8 +884,8 @@ async def analyze_folder_callback(update: Update, context: ContextTypes.DEFAULT_
     folder_path = resolve_path(path_hash, context)
     repo_name = context.user_data.get('repo_name')
     g = get_github_client(context)
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
+    repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+    def_branch = await get_repo_default_branch(repo)
     
     if not llm_client:
         await query.edit_message_text("❌ AI client not configured.")
@@ -812,27 +894,28 @@ async def analyze_folder_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(f"🧠 <b>Analyzing folder</b> <code>{html.escape(folder_path or 'root')}</code> with AI...", parse_mode=ParseMode.HTML)
     
     try:
-        def get_all_files(repo, path, branch, limit=40):
+        async def get_all_files_async(repo, path, branch, limit=40):
             files = []
             try:
-                contents = repo.get_contents(path, ref=branch)
+                contents = await asyncio.to_thread(lambda: repo.get_contents(path, ref=branch))
                 for content in contents:
                     if len(files) >= limit: break
                     if content.type == "dir":
-                        files.extend(get_all_files(repo, content.path, branch, limit - len(files)))
+                        sub_files = await get_all_files_async(repo, content.path, branch, limit - len(files))
+                        files.extend(sub_files)
                     else:
                         if not any(content.name.lower().endswith(ext) for ext in ['.jpg', '.png', '.jpeg', '.gif', '.zip', '.tar', '.gz', '.mp4', '.mp3', '.pdf', '.exe', '.dll', '.so', '.pyc']):
                             files.append(content)
             except: pass
             return files
             
-        files_to_analyze = get_all_files(repo, folder_path, branch=def_branch)
+        files_to_analyze = await get_all_files_async(repo, folder_path, branch=def_branch)
         
         file_contents_list = []
         for f in files_to_analyze:
             try:
-                file_obj = repo.get_contents(f.path, ref=def_branch)
-                decoded = file_obj.decoded_content.decode('utf-8')
+                file_obj = await asyncio.to_thread(lambda: repo.get_contents(f.path, ref=def_branch))
+                decoded = await asyncio.to_thread(lambda: file_obj.decoded_content.decode('utf-8'))
                 file_contents_list.append(f"--- FILE: {f.path} ---\n{decoded}")
             except Exception:
                 pass
@@ -878,8 +961,8 @@ async def initiate_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     repo_name = context.user_data.get('repo_name')
     g = get_github_client(context)
     if not g: return ConversationHandler.END
-    repo = g.get_user().get_repo(repo_name)
-    def_branch = get_repo_default_branch(repo)
+    repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+    def_branch = await get_repo_default_branch(repo)
     
     await query.edit_message_text(
         f"{BANNER}"
@@ -905,8 +988,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         g = get_github_client(context)
         if not g: return ConversationHandler.END
-        repo = g.get_user().get_repo(repo_name)
-        def_branch = get_repo_default_branch(repo)
+        repo = await asyncio.to_thread(lambda: g.get_user().get_repo(repo_name))
+        def_branch = await get_repo_default_branch(repo)
         
         try:
             contents = repo.get_contents(file_name, ref=def_branch)
@@ -1048,9 +1131,56 @@ async def set_token_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_html("🏓 <b>Pong!</b> Bot is active.")
 
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcast a message to all users."""
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_html("❌ <b>Unauthorized:</b> Only admins can use this command.")
+        return
+
+    if not context.args:
+        await update.message.reply_html("❌ <b>Usage:</b> <code>/broadcast &lt;message&gt;</code>")
+        return
+
+    message_to_send = " ".join(context.args)
+    
+    if not os.path.exists(USER_FILE):
+        await update.message.reply_html("❌ <b>No users found to broadcast to.</b>")
+        return
+
+    try:
+        with open(USER_FILE, "r") as f:
+            user_ids = json.load(f)
+    except Exception as e:
+        await update.message.reply_html(f"❌ <b>Error reading users:</b> <code>{html.escape(str(e))}</code>")
+        return
+
+    status_msg = await update.message.reply_html(f"⏳ <b>Broadcasting to {len(user_ids)} users...</b>")
+    
+    sent = 0
+    failed = 0
+    for uid in user_ids:
+        try:
+            await context.bot.send_message(
+                chat_id=uid, 
+                text=f"📢 <b>Broadcast Message:</b>\n\n{message_to_send}", 
+                parse_mode=ParseMode.HTML
+            )
+            sent += 1
+            # Rate limiting to avoid Telegram limits (30 messages per second)
+            if sent % 20 == 0:
+                await asyncio.sleep(1)
+            else:
+                await asyncio.sleep(0.05)
+        except Exception:
+            failed += 1
+    
+    await status_msg.edit_text(f"✅ <b>Broadcast Complete!</b>\n\n👤 <b>Total Users:</b> {len(user_ids)}\n✅ <b>Sent:</b> {sent}\n❌ <b>Failed:</b> {failed}", parse_mode=ParseMode.HTML)
+
 def main():
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("ping", ping))
+    application.add_handler(CommandHandler("broadcast", broadcast))
     
     conv_handler = ConversationHandler(
         entry_points=[
