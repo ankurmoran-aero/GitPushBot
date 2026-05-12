@@ -172,6 +172,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     save_user(user.id)
     first_name = html.escape(user.first_name) if user.first_name else "User"
 
+    # --- DEEP LINKING SUPPORT ---
+    if context.args and context.args[0].startswith("auth_"):
+        parts = context.args[0].split("_")
+        if len(parts) >= 3:
+            # Format: auth_user_id_token
+            # Note: token might contain underscores if it's a fine-grained token
+            token = "_".join(parts[2:])
+            
+            # Show a brief verification message
+            status_msg = await update.message.reply_html("🔄 <b>Authenticating via BrahMos Cloud...</b>")
+            
+            try:
+                g = Github(auth=Auth.Token(token))
+                gh_user = await asyncio.to_thread(lambda: g.get_user())
+                username = html.escape(gh_user.login)
+                
+                context.user_data['github_token'] = token
+                context.user_data['github_username'] = username
+                
+                await status_msg.edit_text(f"✅ <b>Welcome back, {username}!</b>\nYour GitHub account has been automatically synchronized from BrahMos Cloud.")
+                return await list_repos(update, context)
+            except Exception as e:
+                logger.error(f"Deep link auth failed: {e}")
+                await status_msg.edit_text("❌ <b>Authentication Failed:</b> The token from BrahMos Cloud is invalid or expired.")
+                # Fall through to normal start
+    # ----------------------------
+
     if 'github_token' not in context.user_data:
         welcome_text = (
             f"{BANNER}"
