@@ -174,14 +174,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     # --- DEEP LINKING SUPPORT ---
     if context.args and context.args[0].startswith("auth_"):
-        parts = context.args[0].split("_")
-        if len(parts) >= 3:
-            # Format: auth_user_id_token
-            # Note: token might contain underscores if it's a fine-grained token
-            token = "_".join(parts[2:])
-            
+        session_id = context.args[0]
+        token = None
+        shared_sessions_path = '/home/ankur/shared_auth_sessions.json'
+        
+        # Check shared session storage first
+        if os.path.exists(shared_sessions_path):
+            try:
+                import json
+                with open(shared_sessions_path, 'r') as f:
+                    sessions = json.load(f)
+                if session_id in sessions:
+                    session_data = sessions[session_id]
+                    from datetime import datetime
+                    expiry_str = session_data.get("expiry")
+                    if expiry_str:
+                        expiry = datetime.fromisoformat(expiry_str)
+                        if expiry > datetime.now():
+                            token = session_data.get("github_token")
+                    
+                    # One-time use: clean up the session immediately
+                    del sessions[session_id]
+                    with open(shared_sessions_path, 'w') as f:
+                        json.dump(sessions, f, indent=4)
+            except Exception as se_err:
+                logger.error(f"Error checking shared sessions: {se_err}")
+
+        # Fallback to legacy behavior if not found in shared session
+        if not token:
+            parts = session_id.split("_")
+            if len(parts) >= 3:
+                token = "_".join(parts[2:])
+                
+        if token:
             # Show a brief verification message
-            status_msg = await update.message.reply_html("🔄 <b>Authenticating via BrahMos Cloud...</b>")
+            status_msg = await update.message.reply_html("🔄 <b>Authenticating via Aerocity Cloud...</b>")
             
             try:
                 g = Github(auth=Auth.Token(token))
@@ -191,11 +218,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 context.user_data['github_token'] = token
                 context.user_data['github_username'] = username
                 
-                await status_msg.edit_text(f"✅ <b>Welcome back, {username}!</b>\nYour GitHub account has been automatically synchronized from BrahMos Cloud.")
+                await status_msg.edit_text(f"✅ <b>Welcome back, {username}!</b>\nYour GitHub account has been automatically synchronized from Aerocity Cloud.")
                 return await list_repos(update, context)
             except Exception as e:
                 logger.error(f"Deep link auth failed: {e}")
-                await status_msg.edit_text("❌ <b>Authentication Failed:</b> The token from BrahMos Cloud is invalid or expired.")
+                await status_msg.edit_text("❌ <b>Authentication Failed:</b> The token from Aerocity Cloud is invalid or expired.")
                 # Fall through to normal start
     # ----------------------------
 
@@ -215,7 +242,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         keyboard = [
             [InlineKeyboardButton("📖 Documentation", callback_data="how_to_use")],
-            [InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/Ankurslys"), InlineKeyboardButton("🛡 Support", url="https://t.me/BrahMosAI")]
+            [InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/Ankurslys"), InlineKeyboardButton("🛡 Support", url="https://t.me/AerocityAI")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -395,24 +422,6 @@ async def create_pr_title(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.message.reply_html("Please type the <b>Body/Description</b> for the Pull Request:")
     return CREATING_PR_BODY
 
-async def create_pr_submit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    body = update.message.text.strip()
-    repo_name = context.user_data['repo_name']
-    head = context.user_data['pr_head']
-    base = context.user_data['pr_base']
-    title = context.user_data['pr_title']
-    
-    status_msg = await update.message.reply_html("⏳ <b>Creating Pull Request...</b>")
-    g = get_github_client(context)
-    try:
-        repo = g.get_user().get_repo(repo_name)
-        pr = repo.create_pull(title=title, body=body, head=head, base=base)
-        await status_msg.edit_text(f"✅ <b>Pull Request Created!</b>\n<a href='{pr.html_url}'>{html.escape(title)}</a>", parse_mode=ParseMode.HTML)
-        return await show_action_menu(update, context)
-    except Exception as e:
-        logger.error(f"Error creating PR: {e}")
-        await status_msg.edit_text(f"❌ <b>PR Creation Failed:</b>\n<code>{html.escape(str(e))}</code>", parse_mode=ParseMode.HTML)
-        return SELECTING_ACTION
 # -------------------------
 
 async def download_menu_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1237,7 +1246,7 @@ def main():
             ],
             LISTING_CONTENTS: [
                 CallbackQueryHandler(handle_cd, pattern="^cd:"),
-                CallbackQueryHandler(delete_file_callback, pattern="^delete:"),
+                CallbackQueryHandler(delete_file_callback, pattern="^delete_file:"),
                 CallbackQueryHandler(download_file_callback, pattern="^download_file:"),
                 CallbackQueryHandler(view_file_callback, pattern="^view_file:"),
                 CallbackQueryHandler(analyze_file_callback, pattern="^analyze_file:"),
