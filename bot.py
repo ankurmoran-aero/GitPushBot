@@ -36,7 +36,7 @@ def get_config(key, default=None):
 TELEGRAM_BOT_TOKEN = get_config('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
 AI_API_KEY = get_config('API_KEY', 'YOUR_API_KEY_HERE')
 AI_API_BASE = get_config('API_BASE', 'https://openrouter.ai/api/v1')
-AI_MODEL_NAME = get_config('API_MODEL', 'openai/gpt-4o')
+AI_MODEL_NAME = get_config('API_MODEL', 'zenith/gpt-4o')
 ADMIN_IDS = [int(i.strip()) for i in get_config('ADMIN_IDS', '').split(',') if i.strip().isdigit()]
 # Add the creator and the requested user as default admins if none specified
 if not ADMIN_IDS:
@@ -63,8 +63,9 @@ logger = logging.getLogger(__name__)
     CREATING_PR_BODY,
     CREATING_REPO_NAME,
     CREATING_REPO_PRIVATE,
-    CONFIRMING_DELETE_REPO
-) = range(12)
+    CONFIRMING_DELETE_REPO,
+    RENAMING_REPO_NAME
+) = range(13)
 # UI Constants
 BANNER = (
     "<b>🚀 GitPushBot | Advanced Repository Manager</b>\n"
@@ -343,9 +344,13 @@ async def list_repos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         keyboard = [
             [InlineKeyboardButton("➕ Create New Repository", callback_data="create_repo_start")]
         ]
+        repo_urls = {}
         for repo in repos:
             repo_name = html.escape(repo.name)
+            repo_urls[repo.name] = repo.html_url
             keyboard.append([InlineKeyboardButton(f"📁 {repo_name}", callback_data=f"repo:{repo.name}")])
+            
+        context.user_data['repo_urls'] = repo_urls
         
         if not keyboard:
             await loading_msg.edit_text("❌ No repositories found.")
@@ -373,17 +378,22 @@ async def repo_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 async def show_action_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     repo_name = context.user_data['repo_name']
+    repo_url = context.user_data.get('repo_urls', {}).get(repo_name, "")
+    url_text = f"🔗 <b>URL:</b> <a href='{repo_url}'>{repo_url}</a>\n" if repo_url else ""
+    
     keyboard = [
         [InlineKeyboardButton("📤 Upload File", callback_data="initiate")],
         [InlineKeyboardButton("🔍 Summarize", callback_data="list_contents_summarize"), InlineKeyboardButton("🧠 Analyze", callback_data="list_contents_analyze")],
         [InlineKeyboardButton("👁 View", callback_data="list_contents_view"), InlineKeyboardButton("📥 Download", callback_data="list_contents_download")],
-        [InlineKeyboardButton("🗑 Delete Repo", callback_data="list_contents_delete_repo"), InlineKeyboardButton("🔁 Pull Request", callback_data="create_pr_start")],
+        [InlineKeyboardButton("🗑 Delete Repo", callback_data="list_contents_delete_repo"), InlineKeyboardButton("✏️ Rename Repo", callback_data="rename_repo_start")],
+        [InlineKeyboardButton("🔁 Pull Request", callback_data="create_pr_start")],
         [InlineKeyboardButton("🔙 Switch Repository", callback_data="back_to_repos")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     msg_text = (
         f"{BANNER}"
         f"📍 <b>Repository:</b> <code>{html.escape(repo_name)}</code>\n"
+        f"{url_text}"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "Select an action to perform on this repository:"
     )
@@ -1156,6 +1166,26 @@ async def delete_repo_execute(update: Update, context: ContextTypes.DEFAULT_TYPE
         
     return await list_repos(update, context)
 
+async def rename_repo_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    repo_name = context.user_data.get('repo_name', 'Unknown')
+    await query.edit_message_text(f"{BANNER}✏️ <b>Rename Repository</b>\n\nYou are renaming <code>{html.escape(repo_name)}</code>.\n\nPlease type the <b>new repository name</b>:\n\n<i>Type /cancel to abort.</i>", parse_mode=ParseMode.HTML)
+    return RENAMING_REPO_NAME
+
+async def rename_repo_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    new_name = update.message.text.strip()
+    repo_name = context.user_data.get('repo_name')
+    g = get_github_client(context)
+    try:
+        user = g.get_user()
+        repo = user.get_repo(repo_name)
+        repo.edit(name=new_name)
+        await update.message.reply_html(f"✅ <b>Repository Renamed!</b>\n\n<code>{html.escape(repo_name)}</code> is now <code>{html.escape(new_name)}</code>.")
+    except Exception as e:
+        await update.message.reply_html(f"❌ <b>Error:</b> Could not rename repository.\n<code>{html.escape(str(e))}</code>")
+    return await list_repos(update, context)
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_html("❌ <b>Operation Cancelled.</b>")
     return ConversationHandler.END
@@ -1233,6 +1263,7 @@ def main():
                 CallbackQueryHandler(initiate_prompt, pattern="^initiate$"),
                 CallbackQueryHandler(download_menu_prompt, pattern="^download_menu$"),
                 CallbackQueryHandler(list_contents_delete_repo, pattern="^list_contents_delete_repo$"),
+                CallbackQueryHandler(rename_repo_start, pattern="^rename_repo_start$"),
                 CallbackQueryHandler(list_contents, pattern="^list_contents_"),
                 CallbackQueryHandler(create_pr_start, pattern="^create_pr_start$"),
                 CallbackQueryHandler(list_repos, pattern="^back_to_repos$"),
@@ -1262,7 +1293,8 @@ def main():
             CREATING_PR_BODY: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_pr_submit)],
             CREATING_REPO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, create_repo_name)],
             CREATING_REPO_PRIVATE: [CallbackQueryHandler(create_repo_private, pattern="^(public|private)$")],
-            CONFIRMING_DELETE_REPO: [CallbackQueryHandler(delete_repo_execute, pattern="^(confirm_delete_repo|cancel_delete_repo)$")]
+            CONFIRMING_DELETE_REPO: [CallbackQueryHandler(delete_repo_execute, pattern="^(confirm_delete_repo|cancel_delete_repo)$")],
+            RENAMING_REPO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, rename_repo_name)]
         },
         fallbacks=[
             CommandHandler("cancel", cancel), 

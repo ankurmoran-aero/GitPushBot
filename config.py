@@ -8,7 +8,7 @@ TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN"
 # AI Analysis Configuration 
 # Use your Own API & ITS key.
 API_BASE = "https://api.gptnix.online/v1"
-API_MODEL = "openai/gpt-4o"
+API_MODEL = "zenith/gpt-4o"
 API_KEY = "YOUR_API_KEY"
 
 # Admin Configuration
