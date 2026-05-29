@@ -229,16 +229,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if 'github_token' not in context.user_data:
         welcome_text = (
             f"{BANNER}"
-            f"Welcome, <b>{first_name}</b>! 👋\n\n"
-            "This bot turns your mobile device into a powerful development workstation, bridging the gap between local files and remote repositories with zero friction.\n\n"
-            "<b>🛡 Security First:</b>\n"
-            "Your <b>GitHub PAT</b> is stored only within your encrypted session. We recommend <b>Fine-grained tokens</b>.\n\n"
-            "<b>✨ Professional Features:</b>\n"
-            "• <b>Push & Update:</b> Instant file synchronization.\n"
-            "• <b>Archives:</b> One-tap repository downloads.\n"
-            "• <b>Management:</b> PR creation and file deletion.\n"
-            "• <b>✨ AI:</b> <i>Online & Active (GPT-4o)</i>\n\n"
-            "🔑 <b>Please provide your GitHub PAT to begin:</b>"
+            f"✦ <b>Welcome to the Command Line, {first_name}.</b> 🌑\n\n"
+            "This engine transforms your device into an elite, frictionless development workstation. A seamless bridge between your local environment and the remote repository.\n\n"
+            "<b>◈ The Vault:</b>\n"
+            "Your <b>GitHub PAT</b> is encrypted within a transient session state. Absolute security.\n\n"
+            "<b>◈ The Arsenal:</b>\n"
+            "• <b>Synchronization:</b> Instant, bidirectional file state updates.\n"
+            "• <b>Extraction:</b> One-tap repository cloning and archiving.\n"
+            "• <b>Orchestration:</b> Pull Requests, file obliteration, and structural management.\n"
+            "• <b>Intelligence:</b> <i>GPT-4o Cortex Online</i> ✨\n\n"
+            "🔑 <b>Provide your GitHub PAT to initialize the uplink:</b>"
         )
         keyboard = [
             [InlineKeyboardButton("📖 Documentation", callback_data="how_to_use")],
