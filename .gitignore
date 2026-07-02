@@ -8,3 +8,4 @@ startup_daisy.log
 test_output.log
 *.db
 *.pyc
+.env

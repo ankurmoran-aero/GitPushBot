@@ -5,7 +5,7 @@ import os
 # 2. Paste your Telegram Bot Token from @BotFather below.
 # 3. Add your OpenRouter API Key for AI Analysis features.
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 
 # AI Analysis Configuration 
 # Use your Own API & ITS key.
