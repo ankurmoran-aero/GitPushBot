@@ -1,42 +1,80 @@
-# 🚀 GitPushBot: Advanced Mobile Repository Manager
+# GitPushBot
 
-[![Development](https://img.shields.io/badge/Platform-Mobile-orange?style=flat-square&logo=android)](https://github.com/ankurmoran96-openai)
-[![Developer](https://img.shields.io/badge/Developer-14--Year--Old-blue?style=flat-square)](https://github.com/ankurmoran96-openai)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Telegram](https://img.shields.io/badge/Telegram-Bot_API-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Active-22c55e?style=for-the-badge)]()
 
-**GitPushBot** is a high-performance Telegram bot designed to transform your mobile device into a powerful development workstation. It bridges the gap between local storage and GitHub repositories, enabling a seamless "Code-on-the-Go" experience.
-
-## ✨ Key Capabilities
-
-*   **📤 Instant Sync**: Push, pull, or update files in any GitHub repository directly from your Telegram chat.
-*   **🧠 AI Code Insights**: Powered by **GPT-4o**, the bot provides professional summaries and architectural analysis of your code.
-*   **🛠 Magic Fix**: Identify and resolve bugs with AI-generated patches that are pushed directly to your repository.
-*   **🔁 PR Management**: Create and manage Pull Requests without ever opening a browser.
-*   **🛡️ Secure & Lightweight**: Handles GitHub Personal Access Tokens (PATs) securely and works perfectly in low-bandwidth environments.
-
-## 🚀 Quick Start
-
-1.  **Clone & Install:**
-    ```bash
-    git clone https://github.com/ankurmoran96-openai/GitPushBot.git
-    cd GitPushBot
-    pip install -r requirements.txt
-    ```
-2.  **Setup Environment:**
-    Update `config.py` or create a `.env` file with your Telegram `BOT_TOKEN` and AI `API_KEY`.
-3.  **Run with PM2:**
-    ```bash
-    pm2 start bot.py --name GitPushBot
-    ```
-
-## 🔬 Tech Stack
-*   **Backend**: Python 3.10+
-*   **Telegram API**: `python-telegram-bot`
-*   **GitHub Interface**: `PyGithub`
-*   **AI Integration**: OpenAI SDK
-
-## 🛠 Why This Exists
-Developed by a 14-year-old coding on a phone, GitPushBot was born out of necessity. It proves that with the right tools, mobile development can be as powerful as any desktop setup.
+**GitPushBot** is a Telegram bot that provides direct GitHub repository management from any chat interface. Push, pull, update files, create pull requests, and get AI-powered code analysis — all without opening a browser.
 
 ---
-Developed with ❤️ by **Ankur Moran**.
-[Telegram](https://t.me/Ankxrrrr)
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Instant Sync** | Push, pull, or update files in any GitHub repository directly from Telegram |
+| **AI Code Insights** | GPT-4o-powered professional code summaries and architectural analysis |
+| **Magic Fix** | AI-generated bug patches pushed directly to your repository |
+| **PR Management** | Create and manage Pull Requests entirely through the bot |
+| **Secure PAT Handling** | GitHub Personal Access Tokens managed securely, optimized for low-bandwidth environments |
+
+---
+
+## Quick Start
+
+### 1. Clone & Install
+
+```bash
+git clone https://github.com/ankurmoran-aero/GitPushBot.git
+cd GitPushBot
+pip install -r requirements.txt
+```
+
+### 2. Configure Environment
+
+Update `config.py` or create a `.env` file:
+
+```env
+BOT_TOKEN=your_telegram_bot_token
+API_KEY=your_openai_api_key
+```
+
+### 3. Run
+
+```bash
+# With PM2 (recommended for production)
+pm2 start bot.py --name GitPushBot
+
+# Or directly
+python3 bot.py
+```
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Backend | Python 3.10+ |
+| Telegram API | `python-telegram-bot` |
+| GitHub Interface | `PyGithub` |
+| AI Integration | OpenAI SDK |
+
+---
+
+## Project Structure
+
+```
+GitPushBot/
+├── bot.py              # Main bot logic & command handlers
+├── config.py           # Configuration & credentials
+├── fetch_models.py     # AI model management
+└── requirements.txt
+```
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
